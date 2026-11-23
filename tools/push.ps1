@@ -1,4 +1,4 @@
-# 一条命令完成「提交 + 推送」
+﻿# 一条命令完成「提交 + 推送」
 #
 # 用法（在 IDEA 的 Terminal 里，任意目录）：
 #   D:\project\fantasy-library\tools\push.ps1 "feat: 新增某某功能"
