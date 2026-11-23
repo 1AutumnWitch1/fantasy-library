@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 中古幻想图书馆配色：深胡桃木 / 墨绿 / 羊皮纸 / 黄铜 -->
+    <color name="walnut_deep">#FF14100C</color>
+    <color name="walnut">#FF2B1D16</color>
+    <color name="ink_green">#FF1E3A2E</color>
+    <color name="parchment">#FFF1E6CD</color>
+    <color name="brass">#FFC8A45C</color>
+    <color name="ic_launcher_background">#FF231711</color>
+</resources>

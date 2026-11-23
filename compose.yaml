@@ -1,0 +1,103 @@
+name: fantasy-library
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-bookworm-slim}
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:stable-alpine}
+    ports:
+      - "127.0.0.1:${PUBLIC_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  admin-frontend:
+    build:
+      context: ./admin-frontend
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-bookworm-slim}
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:stable-alpine}
+        VITE_PUBLIC_SITE_URL: ${VITE_PUBLIC_SITE_URL:-}
+    ports:
+      - "127.0.0.1:${ADMIN_PORT:-5174}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      SERVER_PORT: 8080
+      ORACLE_JDBC_URL: jdbc:oracle:thin:@//oracle:1521/FREEPDB1
+      ORACLE_USERNAME: ${ORACLE_USERNAME:?Set ORACLE_USERNAME in .env.docker}
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:?Set ORACLE_PASSWORD in .env.docker}
+      MEDIA_STORAGE_ENABLED: "true"
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_BUCKET: ${MINIO_BUCKET:-fantasy-library-media}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY in .env.docker}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY in .env.docker}
+      AUTH_SECURE_COOKIE: ${AUTH_SECURE_COOKIE:-false}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - app_uploads:/app/uploads
+    depends_on:
+      oracle:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  oracle:
+    image: ${ORACLE_IMAGE:-container-registry.oracle.com/database/free:latest}
+    environment:
+      ORACLE_PWD: ${ORACLE_PWD:?Set ORACLE_PWD in .env.docker}
+    shm_size: 1gb
+    ports:
+      - "127.0.0.1:${ORACLE_PORT:-11521}:1521"
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    restart: unless-stopped
+
+  minio:
+    image: ${MINIO_IMAGE:-quay.io/minio/aistor/minio:RELEASE.2026-09-19T17-05-25Z}
+    command: ["minio", "server", "/mnt/data", "--license", "/minio.license", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.docker}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.docker}
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-19000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-19001}:9001"
+    volumes:
+      - minio_data:/mnt/data
+      - type: bind
+        source: ${MINIO_LICENSE_FILE:?Set MINIO_LICENSE_FILE in .env.docker}
+        target: /minio.license
+        read_only: true
+        bind:
+          create_host_path: false
+    restart: unless-stopped
+
+  minio-init:
+    build: ./docker/minio-init
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.docker}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.docker}
+      MINIO_BUCKET: ${MINIO_BUCKET:-fantasy-library-media}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY in .env.docker}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY in .env.docker}
+    depends_on:
+      minio:
+        condition: service_started
+    tmpfs:
+      - /root/.mc
+
+volumes:
+  oracle_data:
+    name: fantasy-library_oracle_full_data
+  minio_data:
+  app_uploads:

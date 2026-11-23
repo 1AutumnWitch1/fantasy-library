@@ -1,0 +1,3040 @@
+openapi: 3.0.3
+info:
+  title: 幻想图书馆 · 馆藏 API
+  version: 1.0.0
+  description: 公开馆藏查询、账号、私人收藏与社区讨论。初始化 SQL 中的作品、标签与插画均为本地示例。
+servers:
+  - url: /
+    description: 使用当前后端服务地址，Android 客户端按环境配置服务器地址。
+tags:
+  - name: Catalog
+    description: 动漫、游戏与作品分类
+  - name: Account
+    description: 登录和私人书架。写请求需先获取 CSRF 校验值并携带相应 Cookie。
+  - name: Community
+    description: 社区档案、手稿、回复及审核
+  - name: Recommendations
+    description: 作品热榜、馆员荐读与个性化推荐
+  - name: Administration
+    description: 作品、节点、论坛及馆员账号管理，仅管理员可访问。
+paths:
+  /api/media/catalog/{suffix}:
+    get:
+      tags: [Catalog]
+      operationId: downloadCatalogArtwork
+      summary: 读取作品封面及插图
+      parameters:
+        - name: suffix
+          in: path
+          required: true
+          schema: {type: string}
+          description: 图片在该目录下的相对路径。
+      responses:
+        '200':
+          description: 图片
+          content:
+            image/*:
+              schema: {type: string, format: binary}
+        '404':
+          description: 找不到图片
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/media/site/{suffix}:
+    get:
+      tags: [Catalog]
+      operationId: downloadSiteArtwork
+      summary: 读取站点配图
+      parameters:
+        - name: suffix
+          in: path
+          required: true
+          schema: {type: string}
+          description: 图片在该目录下的相对路径。
+      responses:
+        '200':
+          description: 图片
+          content:
+            image/*:
+              schema: {type: string, format: binary}
+        '404':
+          description: 找不到图片
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/admin/library/media/catalog:
+    post:
+      tags: [Administration]
+      operationId: uploadCatalogImage
+      summary: 上传作品图片，最大 5 MiB
+      security:
+        - {AdminSession: [], AdminCsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+            multipart/form-data:
+              schema:
+                type: object
+                required: [file]
+                properties:
+                  file: {type: string, format: binary}
+      responses:
+        '201':
+          description: 上传完成，返回站内媒体地址
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/EditorialMediaUpload'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '413':
+          description: 上传文件超过此接口允许的大小
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/media/playback:
+    post:
+      tags: [Administration]
+      operationId: uploadPlaybackVideo
+      summary: 上传视频，使用原始视频请求体时最大 5 GiB
+      security:
+        - {AdminSession: [], AdminCsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+            multipart/form-data:
+              schema:
+                type: object
+                required: [file]
+                properties:
+                  file: {type: string, format: binary}
+            application/octet-stream:
+              schema: {type: string, format: binary}
+      responses:
+        '201':
+          description: 上传完成，返回站内媒体地址
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/EditorialMediaUpload'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '413':
+          description: 上传文件超过此接口允许的大小
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/works/{workId}/playback:
+    get:
+      tags: [Administration]
+      operationId: getEditorialPlayback
+      summary: 查询番剧的分集、预告和播放节点
+      security:
+        - {AdminSession: []}
+      parameters:
+        - name: workId
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: 请求成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/EditorialEpisode'}}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/works/{workId}/playback/episodes:
+    post:
+      tags: [Administration]
+      operationId: addEditorialEpisode
+      summary: 添加正片分集或预告
+      security:
+        - {AdminSession: [], AdminCsrfHeader: []}
+      parameters:
+        - name: workId
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EditorialEpisodeInput'}
+      responses:
+        '201':
+          description: 请求成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/works/{workId}/playback/episodes/{episodeId}:
+    put:
+      tags: [Administration]
+      operationId: updateEditorialEpisode
+      summary: 编辑分集资料
+      security:
+        - {AdminSession: [], AdminCsrfHeader: []}
+      parameters:
+        - name: workId
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: episodeId
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EditorialEpisodeInput'}
+      responses:
+        '200':
+          description: 请求成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/works/{workId}/playback/episodes/{episodeId}/sources:
+    post:
+      tags: [Administration]
+      operationId: addEditorialPlaybackSource
+      summary: 添加播放节点
+      security:
+        - {AdminSession: [], AdminCsrfHeader: []}
+      parameters:
+        - name: workId
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: episodeId
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EditorialPlaybackSourceInput'}
+      responses:
+        '201':
+          description: 请求成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/works/{workId}/playback/episodes/{episodeId}/sources/{sourceId}:
+    put:
+      tags: [Administration]
+      operationId: updateEditorialPlaybackSource
+      summary: 编辑播放节点
+      security:
+        - {AdminSession: [], AdminCsrfHeader: []}
+      parameters:
+        - name: workId
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: episodeId
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: sourceId
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EditorialPlaybackSourceInput'}
+      responses:
+        '200':
+          description: 请求成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/works:
+    get:
+      tags: [Administration]
+      operationId: adminWorks
+      summary: 按类型搜索作品，包含已下架记录
+      security:
+        - AdminSession: []
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema: {type: string, enum: [ANIME, GAME]}
+        - name: listed
+          in: query
+          schema: {type: boolean}
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 80}
+        - $ref: '#/components/parameters/Page'
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 30, default: 12}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/AdminWorkPage'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    post:
+      tags: [Administration]
+      operationId: createEditorialWork
+      summary: 创建待上架作品
+      security:
+        - AdminSession: []
+          AdminCsrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EditorialDraft'}
+      responses:
+        '201':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/EditorialCreated'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '409':
+          description: 作品标识重复或游戏平台仍关联下载节点
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/work-options:
+    get:
+      tags: [Administration]
+      operationId: editorialOptions
+      summary: 查询作品分类、标签及平台选项
+      security:
+        - AdminSession: []
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/EditorialOptions'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/works/{id}:
+    delete:
+      tags: [Administration]
+      operationId: adminDeleteWork
+      summary: 永久删除作品及 Oracle 关联资料，排队清理独占站内文件
+      security:
+        - AdminSession: []
+          AdminCsrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/ForumId'
+      responses:
+        '200':
+          description: 作品已删除或已不存在
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, data]
+                properties:
+                  code: {type: string, enum: [OK]}
+                  message: {type: string}
+                  data:
+                    type: object
+                    required: [queuedFiles, sharedFiles]
+                    properties:
+                      queuedFiles: {type: integer, minimum: 0}
+                      sharedFiles: {type: integer, minimum: 0}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/works/{id}/details:
+    get:
+      tags: [Administration]
+      operationId: getEditorialWork
+      summary: 读取作品编辑详情，包含下架作品
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: '#/components/parameters/ForumId'
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/EditorialArchive'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404':
+          description: 作品未找到
+        '503': {$ref: '#/components/responses/Unavailable'}
+    put:
+      tags: [Administration]
+      operationId: updateEditorialWork
+      summary: 更新作品资料、封面及插图
+      security:
+        - AdminSession: []
+          AdminCsrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/ForumId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EditorialDraft'}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/EditorialCreated'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404':
+          description: 作品未找到
+        '409':
+          description: 作品标识重复或游戏平台仍关联下载节点
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/works/{id}/nodes:
+    get:
+      tags: [Administration]
+      operationId: adminWorkNodes
+      summary: 列出作品的播放或下载节点
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: '#/components/parameters/ForumId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/AdminNodes'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/works/{id}/publication:
+    put:
+      tags: [Administration]
+      operationId: adminPublishWork
+      summary: 设置作品公开状态
+      security:
+        - AdminSession: []
+          AdminCsrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/ForumId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AdminPublication'}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+  /api/admin/library/nodes/{kind}/{id}/publication:
+    put:
+      tags: [Administration]
+      operationId: adminPublishNode
+      summary: 上架资源或确认永久下架和删除资源
+      security:
+        - AdminSession: []
+          AdminCsrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/ForumId'
+        - name: kind
+          in: path
+          required: true
+          schema: {type: string, enum: [PLAYBACK, DOWNLOAD]}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [listed]
+              properties:
+                listed: {type: boolean}
+                confirmRemoval:
+                  type: boolean
+                  description: 下架时必须显式确认永久删除 Oracle 资源记录和独占的站内对象
+      responses:
+        '200':
+          description: 资源已上架、已删除、仍有共享文件，或文件正在等待重试清理
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, data]
+                properties:
+                  code: {type: string, enum: [OK]}
+                  message: {type: string}
+                  data:
+                    type: string
+                    enum: [PUBLISHED, REMOVED, SHARED_FILE_RETAINED, CLEANUP_PENDING]
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+  /api/admin/library/forum:
+    get:
+      tags: [Administration]
+      operationId: adminForumStatus
+      summary: 读取社区论坛开放状态
+      security:
+        - AdminSession: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/AdminForum'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    put:
+      tags: [Administration]
+      operationId: adminSetForum
+      summary: 开放或暂停公开论坛
+      security:
+        - AdminSession: []
+          AdminCsrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AdminForum'}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/posts:
+    get:
+      tags: [Administration]
+      operationId: adminPosts
+      summary: 搜索帖子，包含已下架记录
+      security:
+        - AdminSession: []
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 80}
+        - $ref: '#/components/parameters/Page'
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 30, default: 12}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/AdminPostPage'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/posts/{id}/publication:
+    put:
+      tags: [Administration]
+      operationId: adminPublishPost
+      summary: 下架或恢复论坛帖子
+      security:
+        - AdminSession: []
+          AdminCsrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/ForumId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AdminPublication'}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+  /api/admin/library/comments:
+    get:
+      tags: [Administration]
+      operationId: adminComments
+      summary: 搜索番剧或社区评论
+      security:
+        - AdminSession: []
+      parameters:
+        - name: scope
+          in: query
+          schema: {type: string, enum: [SCREENING, COMMUNITY]}
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 80}
+        - $ref: '#/components/parameters/Page'
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 30, default: 12}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/AdminCommentPage'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/library/comments/{id}:
+    delete:
+      tags: [Administration]
+      operationId: adminDeleteComment
+      summary: 移除评论
+      security:
+        - AdminSession: []
+          AdminCsrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/ForumId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+  /api/admin/library/members:
+    get:
+      tags: [Administration]
+      operationId: adminMembers
+      summary: 搜索未注销的用户
+      security:
+        - AdminSession: []
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 80}
+        - $ref: '#/components/parameters/Page'
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 30, default: 12}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/AdminMemberPage'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    post:
+      tags: [Administration]
+      operationId: adminCreateMember
+      summary: 创建普通用户
+      security:
+        - AdminSession: []
+          AdminCsrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Registration'}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+        '409':
+          description: 账号名称已存在
+  /api/admin/library/members/{id}:
+    delete:
+      tags: [Administration]
+      operationId: adminDeleteMember
+      summary: 注销普通用户，保留匿名历史发言
+      security:
+        - AdminSession: []
+          AdminCsrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/ForumId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+  /api/media/playback/{fileName}:
+    get:
+      tags: [Catalog]
+      operationId: streamListedPlaybackMedia
+      summary: 读取本站已上架的媒体文件
+      parameters:
+        - name: fileName
+          in: path
+          required: true
+          schema: {type: string}
+        - name: Range
+          in: header
+          schema: {type: string}
+      responses:
+        '200':
+          description: 视频文件
+          content:
+            video/mp4:
+              schema: {type: string, format: binary}
+            video/webm:
+              schema: {type: string, format: binary}
+        '206':
+          description: 视频的部分字节
+          content:
+            video/mp4:
+              schema: {type: string, format: binary}
+            video/webm:
+              schema: {type: string, format: binary}
+        '404':
+          description: 资源不存在或已下架
+        '416':
+          description: 字节范围不可满足
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/works/{id}/downloads:
+    get:
+      tags: [Catalog]
+      operationId: listGameDownloads
+      summary: 查询游戏可用的下载节点，按平台和节点顺序排列
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: 下载节点。没有登记可用资源时返回空列表。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/GameDownload'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          description: 游戏未找到
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/game-downloads/{id}/file:
+    get:
+      tags: [Catalog]
+      operationId: downloadGameFile
+      summary: 获取节点登记的本地下载文件
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: Range
+          in: header
+          description: 可选的字节范围，例如 bytes=0-1023。
+          schema: {type: string}
+      responses:
+        '200':
+          description: 完整附件
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        '206':
+          description: 附件的部分字节
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          description: 下载文件暂不可用
+        '416':
+          description: 字节范围不可满足
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/works/{id}/episodes:
+    get:
+      tags: [Catalog]
+      operationId: listEpisodes
+      summary: 查询番剧分集、预告及各自可用的播放节点
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: 按正式分集、预告及分集号排序，支持空列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PlaybackEpisode'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          description: 番剧未找到
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/me/reading-history:
+    get:
+      tags: [Account]
+      operationId: listReadingHistory
+      summary: 按时间分页查询追番进度记录
+      security:
+        - LibrarySession: []
+      parameters:
+        - name: page
+          in: query
+          schema: {type: integer, minimum: 1, default: 1}
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 30, default: 8}
+      responses:
+        '200':
+          description: 当前账号的私人档案
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WatchHistoryPage'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/me/inbox:
+    get:
+      tags: [Account]
+      operationId: listInbox
+      summary: 分页查询收到的社区消息和未读数
+      security:
+        - LibrarySession: []
+      parameters:
+        - name: page
+          in: query
+          schema: {type: integer, minimum: 1, default: 1}
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 30, default: 8}
+      responses:
+        '200':
+          description: 当前账号的私人档案
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PrivateInbox'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/me/inbox/{id}/read:
+    put:
+      tags: [Account]
+      operationId: markInboxNoticeRead
+      summary: 将一条收到的消息标为已读
+      security:
+        - LibrarySession: []
+          CsrfHeader: []
+      parameters:
+        - $ref: '#/components/parameters/ForumId'
+      responses:
+        '200':
+          description: 已执行标记
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '403':
+          $ref: '#/components/responses/CsrfRejected'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/me/inbox/read:
+    put:
+      tags: [Account]
+      operationId: markWholeInboxRead
+      summary: 将收到的消息全部标为已读
+      security:
+        - LibrarySession: []
+          CsrfHeader: []
+      responses:
+        '200':
+          description: 已执行标记
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '403':
+          $ref: '#/components/responses/CsrfRejected'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/recommendations:
+    get:
+      tags: [Recommendations]
+      operationId: getRecommendations
+      summary: 查询公开推荐与榜单
+      parameters:
+        - name: type
+          in: query
+          description: 省略时查询全部作品。作品筛选同时适用于榜单、新增与讨论。
+          schema: {type: string, enum: [ANIME, GAME]}
+      responses:
+        '200':
+          description: 推荐书内容
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/me/recommendations:
+    get:
+      tags: [Recommendations]
+      operationId: getPersonalRecommendations
+      summary: 按当前账号收藏生成推荐
+      security:
+        - LibrarySession: []
+      parameters:
+        - name: type
+          in: query
+          description: 省略时查询全部作品。作品筛选同时适用于榜单、新增与讨论。
+          schema: {type: string, enum: [ANIME, GAME]}
+      responses:
+        '200':
+          description: 推荐书内容
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/categories:
+    get:
+      tags: [Catalog]
+      operationId: listCategories
+      summary: 查询作品分类
+      responses:
+        '200':
+          description: 分类按 sortOrder 和 ID 升序排列
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryResponse'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/Internal'
+  /api/tags:
+    get:
+      tags: [Catalog]
+      operationId: listWorkTags
+      summary: 查询指定作品类型使用的标签
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema: {type: string, enum: [ANIME, GAME]}
+      responses:
+        '200':
+          description: 当前作品类型的标签
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items: {$ref: '#/components/schemas/Tag'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+        '500': {$ref: '#/components/responses/Internal'}
+  /api/anime:
+    get:
+      tags: [Catalog]
+      operationId: listAnime
+      summary: 分页查询动漫
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Category'
+        - $ref: '#/components/parameters/Tag'
+        - $ref: '#/components/parameters/Tags'
+        - $ref: '#/components/parameters/Keyword'
+      responses:
+        '200':
+          description: 动漫列表，按发布日期与 ID 降序排列。超出页码范围时 items 为空。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnimePageResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/Internal'
+  /api/games:
+    get:
+      tags: [Catalog]
+      operationId: listGames
+      summary: 分页查询游戏
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Category'
+        - $ref: '#/components/parameters/Tag'
+        - $ref: '#/components/parameters/Tags'
+        - $ref: '#/components/parameters/Keyword'
+      responses:
+        '200':
+          description: 游戏列表，按发布日期与 ID 降序排列。超出页码范围时 items 为空。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GamePageResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/Internal'
+  /api/works/{id}:
+    get:
+      tags: [Catalog]
+      operationId: getWork
+      summary: 查询作品详情、标签和图片
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 列表返回的全局作品 ID。
+          schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: 作品详情，按类型返回 anime 或 game
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkDetailResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          description: 作品不存在，code 为 WORK_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/Internal'
+  /api/admin/auth/csrf:
+    get:
+      tags: [Administration]
+      operationId: getAdminCsrfProof
+      summary: 获取管理端写操作校验值
+      responses:
+        '200':
+          description: 管理端校验值
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/CsrfProof'}
+  /api/admin/auth/login:
+    post:
+      tags: [Administration]
+      operationId: loginAdministrator
+      summary: 登录管理端并创建独立管理会话
+      security:
+        - {AdminCsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Credentials'}
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Success'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/CsrfRejected'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/auth/logout:
+    post:
+      tags: [Administration]
+      operationId: logoutAdministrator
+      summary: 撤销管理会话
+      security:
+        - {AdminCsrfHeader: []}
+      responses:
+        '200':
+          description: 退出成功
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Success'}
+        '403': {$ref: '#/components/responses/CsrfRejected'}
+  /api/admin/auth/profile:
+    get:
+      tags: [Administration]
+      operationId: getAdministratorProfile
+      summary: 读取当前管理员资料
+      security:
+        - {AdminSession: []}
+      responses:
+        '200':
+          description: 管理员资料
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/Profile'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+  /api/auth/csrf:
+    get:
+      tags: [Account]
+      operationId: getCsrfProof
+      summary: 获取写操作校验值
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/CsrfProof'}
+  /api/auth/register:
+    post:
+      tags: [Account]
+      operationId: registerAccount
+      summary: 注册账号
+      security:
+        - {CsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Registration'}
+      responses:
+        '201':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '403': {$ref: '#/components/responses/CsrfRejected'}
+        '409':
+          description: 账号名已使用
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/auth/login:
+    post:
+      tags: [Account]
+      operationId: loginAccount
+      summary: 登录并设置七天有效的 HttpOnly 令牌 Cookie
+      security:
+        - {CsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Credentials'}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/CsrfRejected'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/auth/logout:
+    post:
+      tags: [Account]
+      operationId: logoutAccount
+      summary: 撤销当前会话并清除 Cookie
+      security:
+        - {CsrfHeader: []}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '403': {$ref: '#/components/responses/CsrfRejected'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/me/profile:
+    get:
+      tags: [Account]
+      operationId: getMyProfile
+      summary: 查询自己的资料
+      security:
+        - {LibrarySession: []}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/Profile'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    put:
+      tags: [Account]
+      operationId: updateMyProfile
+      summary: 更新自己的资料
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProfileUpdate'}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/Profile'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/CsrfRejected'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/me/collection:
+    get:
+      tags: [Account]
+      operationId: listMyCollection
+      summary: 查询自己的收藏和愿望单
+      security:
+        - {LibrarySession: []}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/SavedWorkList'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/me/collection/{workId}:
+    parameters:
+      - name: workId
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+    get:
+      tags: [Account]
+      operationId: getMySavedWork
+      summary: 读取该作品在自己书架上的记录
+      security:
+        - {LibrarySession: []}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/SavedWorkEntry'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    put:
+      tags: [Account]
+      operationId: saveMyWork
+      summary: 保存该作品的收藏、追番进度或愿望单
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SaveWork'}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/SavedWork'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/CsrfRejected'}
+        '404':
+          description: 作品不存在
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    delete:
+      tags: [Account]
+      operationId: removeMyWork
+      summary: 移出作品与其追番记录或愿望单状态
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/CsrfRejected'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/community/posts:
+    get:
+      tags: [Community]
+      operationId: listCommunityPosts
+      summary: 公开讨论档案
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 30}
+        - name: workId
+          in: query
+          schema: {type: integer, format: int64, minimum: 1}
+        - name: topic
+          in: query
+          schema: {$ref: '#/components/schemas/ForumTopic'}
+        - name: sort
+          in: query
+          description: HOT 按评论数、点赞数、浏览数降序排列。
+          schema: {type: string, enum: [RECENT, HOT], default: RECENT}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/PostPage'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/community/posts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ForumId'
+    get:
+      tags: [Community]
+      operationId: getCommunityPost
+      summary: 读取手稿与图片标识
+      parameters:
+        - name: view
+          in: query
+          description: 读者打开详情时传 true 记一次浏览，列表与编辑读取省略此参数。
+          schema: {type: boolean, default: false}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/ForumDetail'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/community/posts/{id}/comments:
+    parameters:
+      - $ref: '#/components/parameters/ForumId'
+    get:
+      tags: [Community]
+      operationId: listCommunityComments
+      summary: 读取评论与回复
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 30}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/CommentPage'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/works/{id}/comments:
+    parameters:
+      - $ref: '#/components/parameters/ForumId'
+    get:
+      tags: [Community]
+      operationId: listScreeningComments
+      summary: 读取一部番剧各分集共用的放映室评论和回复
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 30, default: 12}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/CommentPage'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/works/{id}/comment-threads:
+    get:
+      tags: [Community]
+      operationId: listScreeningThreads
+      summary: 读取番剧评论及每条评论的前两条回复
+      parameters: &screeningThreadParams
+        - $ref: '#/components/parameters/ForumId'
+        - $ref: '#/components/parameters/Page'
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 30, default: 10}
+      responses: &screeningThreadResponses
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/ScreeningThreadPage'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/me/works/{id}/comment-threads:
+    get:
+      tags: [Community]
+      operationId: listMemberScreeningThreads
+      summary: 读取番剧评论、回复预览与当前用户的点赞状态
+      security:
+        - LibrarySession: []
+      parameters: *screeningThreadParams
+      responses:
+        <<: *screeningThreadResponses
+        '401': {$ref: '#/components/responses/AuthRequired'}
+  /api/works/{id}/comments/{root}/replies:
+    get:
+      tags: [Community]
+      operationId: listScreeningReplies
+      summary: 按页展开一条番剧评论下的回复
+      parameters: &screeningReplyParams
+        - $ref: '#/components/parameters/ForumId'
+        - name: root
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+        - $ref: '#/components/parameters/Page'
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 30, default: 6}
+      responses: &screeningReplyResponses
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/ScreeningReplyPage'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/me/works/{id}/comments/{root}/replies:
+    get:
+      tags: [Community]
+      operationId: listMemberScreeningReplies
+      summary: 按页展开回复并读取当前用户的点赞状态
+      security:
+        - LibrarySession: []
+      parameters: *screeningReplyParams
+      responses:
+        <<: *screeningReplyResponses
+        '401': {$ref: '#/components/responses/AuthRequired'}
+  /api/me/works/{id}/comments/{comment}/like:
+    put:
+      tags: [Community]
+      operationId: setScreeningCommentLike
+      summary: 为可见的番剧评论点赞或取消点赞
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      parameters:
+        - $ref: '#/components/parameters/ForumId'
+        - name: comment
+          in: path
+          required: true
+          schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [liked]
+              properties:
+                liked: {type: boolean}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/Reaction'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/community/media/{key}:
+    parameters:
+      - {name: key, in: path, required: true, schema: {type: string}}
+    get:
+      tags: [Community]
+      operationId: getCommunityImage
+      summary: 读取可见帖子的规范化图片
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            image/png:
+              schema: {type: string, format: binary}
+            image/jpeg:
+              schema: {type: string, format: binary}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/me/community/posts:
+    post:
+      tags: [Community]
+      operationId: publishCommunityPost
+      summary: 发布手稿
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [post]
+              properties:
+                post: {$ref: '#/components/schemas/PostForm'}
+                images: {type: array, maxItems: 4, items: {type: string, format: binary}}
+            encoding:
+              post: {contentType: application/json}
+      responses:
+        '201':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/ForumCreated'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/me/community/posts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ForumId'
+    put:
+      tags: [Community]
+      operationId: editCommunityPost
+      summary: 仅更新自己的手稿
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [post]
+              properties:
+                post: {$ref: '#/components/schemas/PostForm'}
+                images: {type: array, maxItems: 4, items: {type: string, format: binary}}
+            encoding:
+              post: {contentType: application/json}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    delete:
+      tags: [Community]
+      operationId: deleteCommunityPost
+      summary: 移除自己的手稿
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/me/community/posts/{id}/comments:
+    parameters:
+      - $ref: '#/components/parameters/ForumId'
+    post:
+      tags: [Community]
+      operationId: createCommunityComment
+      summary: 发布评论或回复同帖评论
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CommentForm'}
+      responses:
+        '201':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/ForumCreated'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/me/works/{id}/comments:
+    parameters:
+      - $ref: '#/components/parameters/ForumId'
+    post:
+      tags: [Community]
+      operationId: createScreeningComment
+      summary: 登录后发布番剧评论或回复同一番剧下的评论
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CommentForm'}
+      responses:
+        '201':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/ForumCreated'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/me/community/posts/{id}/like:
+    parameters:
+      - $ref: '#/components/parameters/ForumId'
+    get:
+      tags: [Community]
+      operationId: getCommunityLike
+      summary: 读取自己的点赞状态
+      security:
+        - {LibrarySession: []}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/Reaction'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    put:
+      tags: [Community]
+      operationId: putCommunityLike
+      summary: 点赞
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/Reaction'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    delete:
+      tags: [Community]
+      operationId: deleteCommunityLike
+      summary: 取消点赞
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/Reaction'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/me/community/reports:
+    post:
+      tags: [Community]
+      operationId: reportCommunityContent
+      summary: 举报帖子或评论
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReportForm'}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/community/reports:
+    get:
+      tags: [Community]
+      operationId: listCommunityReports
+      summary: 管理员读取待处理举报
+      security:
+        - {AdminSession: []}
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - name: size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 30}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Success'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data: {$ref: '#/components/schemas/ForumReportPage'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/admin/community/reports/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ForumId'
+    put:
+      tags: [Community]
+      operationId: reviewCommunityReport
+      summary: 管理员隐藏、删除内容或驳回举报
+      security:
+        - {AdminSession: [], AdminCsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReviewForm'}
+      responses:
+        '200':
+          description: 请求完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/ForumForbidden'}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/avatars/{key}:
+    get:
+      tags: [Account]
+      summary: 读取用户当前使用的规范化头像
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: 当前头像
+          content:
+            image/png:
+              schema: {type: string, format: binary}
+            image/jpeg:
+              schema: {type: string, format: binary}
+        '404': {$ref: '#/components/responses/ForumMissing'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/me/avatar:
+    put:
+      tags: [Account]
+      summary: 上传或更换自己的头像
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [avatar]
+              properties:
+                avatar: {type: string, format: binary, description: JPEG 或 PNG 文件，最多 2 MB}
+      responses:
+        '200': {$ref: '#/components/responses/AvatarUpdated'}
+        '400': {$ref: '#/components/responses/Invalid'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/CsrfRejected'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+    delete:
+      tags: [Account]
+      summary: 移除自己的头像
+      security:
+        - {LibrarySession: [], CsrfHeader: []}
+      responses:
+        '200': {$ref: '#/components/responses/AvatarUpdated'}
+        '401': {$ref: '#/components/responses/AuthRequired'}
+        '403': {$ref: '#/components/responses/CsrfRejected'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+components:
+  securitySchemes:
+    AdminSession:
+      type: apiKey
+      in: cookie
+      name: fantasy_library_admin_session
+      description: 管理端登录后的专用 HttpOnly Cookie，路径为 /api/admin。
+    AdminCsrfHeader:
+      type: apiKey
+      in: header
+      name: X-Admin-CSRF-Token
+      description: 通过管理端 GET /api/admin/auth/csrf 获取校验值并保留响应 Cookie。
+    LibrarySession:
+      type: apiKey
+      in: cookie
+      name: fantasy_library_session
+      description: 登录成功后设置的 HttpOnly 会话 Cookie。
+    CsrfHeader:
+      type: apiKey
+      in: header
+      name: X-XSRF-TOKEN
+      description: 通过 GET /api/auth/csrf 获取校验值并保留响应 Cookie。
+  parameters:
+    ForumId:
+      name: id
+      in: path
+      required: true
+      schema: {type: integer, format: int64, minimum: 1}
+    Page:
+      name: page
+      in: query
+      schema: {type: integer, format: int32, minimum: 1, default: 1}
+    Size:
+      name: size
+      in: query
+      schema: {type: integer, format: int32, minimum: 1, maximum: 100, default: 20}
+    Category:
+      name: category
+      in: query
+      description: 分类 slug，例如 fantasy。未知 slug 会得到空列表。
+      schema:
+        $ref: '#/components/schemas/FilterSlug'
+    Tag:
+      name: tag
+      in: query
+      description: 标签 slug，例如 mystery。未知 slug 会得到空列表。
+      schema:
+        $ref: '#/components/schemas/FilterSlug'
+    Tags:
+      name: tags
+      in: query
+      style: form
+      explode: true
+      description: 可重复传入标签 slug，例如 tags=mystery&tags=detective。结果必须包含所有选中标签。重复项合并，可叠加单标签、分类和关键词。
+      schema:
+        type: array
+        maxItems: 100
+        items:
+          $ref: '#/components/schemas/FilterSlug'
+    Keyword:
+      name: q
+      in: query
+      description: 对标题和简介执行不区分大小写的字面包含匹配。空白关键词会忽略。
+      schema: {type: string, maxLength: 100}
+  responses:
+    AvatarUpdated:
+      description: 当前用户资料
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Success'
+              - type: object
+                required: [data]
+                properties:
+                  data: {$ref: '#/components/schemas/Profile'}
+    ForumMissing:
+      description: 内容不存在或已从公开档案移除
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    ForumForbidden:
+      description: 非作者、非管理员或写请求未通过 CSRF 校验
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    AuthRequired:
+      description: 登录状态无效或账号名、密码不正确
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    CsrfRejected:
+      description: 写操作缺少有效的 CSRF 校验值
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Invalid:
+      description: 请求参数不符合要求，code 为 INVALID_ARGUMENT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: INVALID_ARGUMENT
+            message: 请求参数不正确
+            errors:
+              - field: size
+                message: 每页最多 100 条
+    Unavailable:
+      description: Oracle、应用表或社区图片存储暂不可用
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Internal:
+      description: 服务器内部错误，code 为 INTERNAL_ERROR
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    EditorialMediaUpload:
+      type: object
+      required: [url]
+      properties:
+        url: {type: string}
+        format: {type: string, enum: [MP4, WEBM]}
+    EditorialEpisodeInput:
+      type: object
+      required: [edition, number, title, durationSeconds]
+      properties:
+        edition: {type: string, enum: [EPISODE, PREVIEW]}
+        number: {type: integer, minimum: 1}
+        title: {type: string, maxLength: 180}
+        durationSeconds: {type: integer, minimum: 1}
+    EditorialPlaybackSourceInput:
+      type: object
+      required: [label, quality, url, format]
+      properties:
+        label: {type: string, maxLength: 100}
+        quality: {type: string, maxLength: 40}
+        url: {type: string, maxLength: 1000}
+        format: {type: string, enum: [MP4, WEBM]}
+    EditorialEpisode:
+      allOf:
+        - $ref: '#/components/schemas/EditorialEpisodeInput'
+        - type: object
+          required: [id, sources]
+          properties:
+            id: {type: integer, format: int64}
+            sources: {type: array, items: {$ref: '#/components/schemas/EditorialPlaybackSource'}}
+    EditorialPlaybackSource:
+      allOf:
+        - $ref: '#/components/schemas/EditorialPlaybackSourceInput'
+        - type: object
+          required: [id, listed]
+          properties:
+            id: {type: integer, format: int64}
+            listed: {type: boolean}
+    EditorialDraft:
+      type: object
+      required: [type, slug, title, summary, categoryId, tagIds, gallery]
+      properties:
+        type: {type: string, enum: [ANIME, GAME]}
+        slug: {type: string, maxLength: 90, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'}
+        title: {type: string, maxLength: 180}
+        summary: {type: string, maxLength: 900}
+        releaseDate: {type: string, format: date, nullable: true}
+        categoryId: {type: integer, format: int64, minimum: 1}
+        tagIds: {type: array, items: {type: integer, format: int64, minimum: 1}, maxItems: 100}
+        anime: {$ref: '#/components/schemas/EditorialAnime'}
+        game: {$ref: '#/components/schemas/EditorialGame'}
+        cover: {$ref: '#/components/schemas/EditorialImage'}
+        gallery: {type: array, items: {$ref: '#/components/schemas/EditorialImage'}, maxItems: 8}
+    EditorialImage:
+      type: object
+      required: [url, alt]
+      properties:
+        url: {type: string, maxLength: 500}
+        alt: {type: string, maxLength: 180}
+    EditorialAnime:
+      type: object
+      required: [studio, airingStatus]
+      properties:
+        studio: {type: string, maxLength: 150}
+        airingStatus: {type: string, enum: [UPCOMING, ONGOING, COMPLETED]}
+        episodeCount: {type: integer, minimum: 1, maximum: 99999, nullable: true}
+    EditorialGame:
+      type: object
+      required: [developer, platformIds]
+      properties:
+        developer: {type: string, maxLength: 150}
+        ageRating: {type: string, maxLength: 20, nullable: true}
+        platformIds: {type: array, items: {type: integer, format: int64, minimum: 1}, minItems: 1, maxItems: 32}
+    EditorialEntry:
+      type: object
+      required: [id, type, slug, title, summary, releaseDate, categoryId, listed]
+      properties:
+        id: {type: integer, format: int64, minimum: 1}
+        type: {type: string, enum: [ANIME, GAME]}
+        slug: {type: string, maxLength: 90, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'}
+        title: {type: string, maxLength: 180}
+        summary: {type: string, maxLength: 900}
+        releaseDate: {type: string, format: date, nullable: true}
+        categoryId: {type: integer, format: int64, minimum: 1}
+        listed: {type: boolean}
+    EditorialArchive:
+      type: object
+      required: [entry, tagIds, gallery]
+      properties:
+        entry: {$ref: '#/components/schemas/EditorialEntry'}
+        tagIds: {type: array, items: {type: integer, format: int64, minimum: 1}, maxItems: 100}
+        anime: {$ref: '#/components/schemas/EditorialAnime'}
+        game: {$ref: '#/components/schemas/EditorialGame'}
+        cover: {$ref: '#/components/schemas/EditorialImage'}
+        gallery: {type: array, items: {$ref: '#/components/schemas/EditorialImage'}, maxItems: 8}
+    EditorialOption:
+      type: object
+      required: [id, name]
+      properties:
+        id: {type: integer, format: int64, minimum: 1}
+        name: {type: string}
+    EditorialOptions:
+      type: object
+      required: [categories, tags, platforms]
+      properties:
+        categories: {type: array, items: {$ref: '#/components/schemas/EditorialOption'}}
+        tags: {type: array, items: {$ref: '#/components/schemas/EditorialOption'}}
+        platforms: {type: array, items: {$ref: '#/components/schemas/EditorialOption'}}
+    EditorialCreated:
+      type: object
+      required: [id]
+      properties:
+        id: {type: integer, format: int64, minimum: 1}
+    AdminWork:
+      type: object
+      required: [id, title, type, listed]
+      properties:
+        id: {type: integer, format: int64}
+        title: {type: string}
+        type: {type: string, enum: [ANIME, GAME]}
+        listed: {type: boolean}
+    AdminNode:
+      type: object
+      required: [id, kind, label, context, listed]
+      properties:
+        id: {type: integer, format: int64}
+        kind: {type: string, enum: [PLAYBACK, DOWNLOAD]}
+        label: {type: string}
+        context: {type: string}
+        listed: {type: boolean}
+    AdminPublication:
+      type: object
+      required: [listed]
+      properties:
+        listed: {type: boolean}
+    AdminForum:
+      type: object
+      required: [open]
+      properties:
+        open: {type: boolean}
+    AdminPost:
+      type: object
+      required: [id, title, author, topic, listed, createdAt]
+      properties:
+        id: {type: integer, format: int64}
+        title: {type: string}
+        author: {type: string}
+        topic: {type: string}
+        listed: {type: boolean}
+        createdAt: {type: string}
+    AdminComment:
+      type: object
+      required: [id, postId, postTitle, scope, workId, workTitle, author, body, createdAt]
+      properties:
+        id: {type: integer, format: int64}
+        postId: {type: integer, format: int64}
+        postTitle: {type: string}
+        scope: {type: string, enum: [SCREENING, COMMUNITY]}
+        workId: {type: integer, format: int64, nullable: true}
+        workTitle: {type: string, nullable: true}
+        author: {type: string}
+        body: {type: string}
+        createdAt: {type: string}
+    AdminMember:
+      type: object
+      required: [id, username, displayName, role]
+      properties:
+        id: {type: integer, format: int64}
+        username: {type: string}
+        displayName: {type: string}
+        role: {type: string, enum: [ADMIN, MEMBER]}
+    AdminNodes:
+      type: array
+      items: {$ref: '#/components/schemas/AdminNode'}
+    AdminWorkPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: {$ref: '#/components/schemas/AdminWork'}
+    AdminPostPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: {$ref: '#/components/schemas/AdminPost'}
+    AdminCommentPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: {$ref: '#/components/schemas/AdminComment'}
+    AdminMemberPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: {$ref: '#/components/schemas/AdminMember'}
+    GameDownload:
+      type: object
+      required: [id, label, platform, url, external]
+      properties:
+        id: {type: integer, format: int64}
+        label: {type: string}
+        platform: {type: string}
+        url:
+          type: string
+          description: 本站附件路径或登记的 HTTPS 网页及下载直链
+        external: {type: boolean}
+    PlaybackEpisode:
+      type: object
+      required: [id, edition, number, title, durationSeconds, sources]
+      properties:
+        id: {type: integer, format: int64}
+        edition: {type: string, enum: [EPISODE, PREVIEW]}
+        number: {type: integer, minimum: 1}
+        title: {type: string}
+        durationSeconds: {type: integer, minimum: 1}
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaybackSource'
+    PlaybackSource:
+      type: object
+      required: [id, label, quality, url, format]
+      properties:
+        id: {type: integer, format: int64}
+        label: {type: string}
+        quality: {type: string}
+        url:
+          type: string
+          description: 本地播放文件路径或 HTTPS 媒体直链
+        format: {type: string, enum: [MP4, WEBM]}
+    WatchEvent:
+      type: object
+      required: [id, workId, title, coverUrl, watchStatus, watchedEpisodes, episodeCount, recordedAt]
+      properties:
+        id: {type: integer, format: int64}
+        workId: {type: integer, format: int64}
+        title: {type: string}
+        coverUrl: {type: string, nullable: true}
+        watchStatus: {type: string, enum: [PLAN_TO_WATCH, WATCHING, COMPLETED, ON_HOLD]}
+        watchedEpisodes: {type: integer, minimum: 0}
+        episodeCount: {type: integer, nullable: true}
+        recordedAt: {type: string, format: date-time}
+    WatchHistoryPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/WatchEvent'
+    InboxNotice:
+      type: object
+      required: [id, kind, actorName, avatarKey, postId, postTitle, screeningWorkId, excerpt, createdAt, read]
+      properties:
+        id: {type: integer, format: int64}
+        kind: {type: string, enum: [POST_COMMENT, COMMENT_REPLY, POST_LIKE]}
+        actorName: {type: string}
+        avatarKey: {type: string, nullable: true}
+        postId: {type: integer, format: int64}
+        postTitle: {type: string}
+        screeningWorkId: {type: integer, format: int64, nullable: true}
+        excerpt: {type: string, nullable: true}
+        createdAt: {type: string, format: date-time}
+        read: {type: boolean}
+    PrivateInbox:
+      type: object
+      required: [page, unread]
+      properties:
+        unread: {type: integer, format: int64, minimum: 0}
+        page:
+          allOf:
+            - $ref: '#/components/schemas/PageInfo'
+            - type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/InboxNotice'
+    RecommendationResponse:
+      allOf:
+        - $ref: '#/components/schemas/Success'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/RecommendationFeed'
+    RecommendationFeed:
+      type: object
+      required: [mode, forYou, popular, newest, discussions]
+      properties:
+        mode: {type: string, enum: [PERSONALIZED, POPULAR, EDITORIAL, EMPTY]}
+        forYou:
+          type: array
+          items:
+            type: object
+            required: [entry, reason]
+            properties:
+              entry:
+                $ref: '#/components/schemas/RecommendationWork'
+              reason: {type: string}
+        popular:
+          type: array
+          items:
+            type: object
+            required: [entry, heat]
+            properties:
+              entry:
+                $ref: '#/components/schemas/RecommendationWork'
+              heat:
+                type: object
+                required: [workId, score, favoriteCount, wishlistCount, commentCount, likeCount, viewCount]
+                properties:
+                  workId: {type: integer, format: int64}
+                  score: {type: integer, format: int64, minimum: 0}
+                  favoriteCount: {type: integer, format: int64, minimum: 0}
+                  wishlistCount: {type: integer, format: int64, minimum: 0}
+                  commentCount: {type: integer, format: int64, minimum: 0}
+                  likeCount: {type: integer, format: int64, minimum: 0}
+                  viewCount: {type: integer, format: int64, minimum: 0}
+        newest:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecommendationWork'
+        discussions:
+          type: array
+          description: 最近 14 天内发表或有公开评论的讨论，按最新活动时间排序。
+          items:
+            $ref: '#/components/schemas/CommunityPost'
+    RecommendationWork:
+      type: object
+      required: [work, tags, addedAt]
+      properties:
+        work:
+          $ref: '#/components/schemas/Work'
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+        addedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: 收录时间。迁移前的作品可能没有记录。
+    ForumTopic: {type: string, enum: [GENERAL, ANIME, GAME, GUIDE]}
+    PostForm:
+      type: object
+      required: [topic, title, body]
+      properties:
+        topic: {$ref: '#/components/schemas/ForumTopic'}
+        workId: {type: integer, format: int64, minimum: 1, nullable: true}
+        title: {type: string, maxLength: 100}
+        body: {type: string, maxLength: 6000}
+        keepImages: {type: array, maxItems: 4, items: {type: string}}
+    CommunityPost:
+      type: object
+      description: 列表中的 body 为摘要，详情中的 body 为完整正文。
+      properties:
+        id: {type: integer, format: int64}
+        authorId: {type: integer, format: int64}
+        authorName: {type: string}
+        workId: {type: integer, format: int64, nullable: true}
+        workTitle: {type: string, nullable: true}
+        topic: {$ref: '#/components/schemas/ForumTopic'}
+        title: {type: string}
+        body: {type: string}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+        likeCount: {type: integer}
+        commentCount: {type: integer}
+        viewCount: {type: integer, format: int64, minimum: 0}
+        previewImage: {type: string, nullable: true}
+        avatarKey: {type: string, nullable: true}
+    ForumDetail:
+      type: object
+      required: [post, images]
+      properties:
+        post: {$ref: '#/components/schemas/CommunityPost'}
+        images: {type: array, items: {type: string}}
+    ForumCreated:
+      type: object
+      required: [id]
+      properties:
+        id: {type: integer, format: int64}
+    CommentForm:
+      type: object
+      required: [body]
+      properties:
+        body: {type: string, maxLength: 900}
+        parentId: {type: integer, format: int64, minimum: 1, nullable: true}
+    ForumComment:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        postId: {type: integer, format: int64}
+        authorId: {type: integer, format: int64}
+        authorName: {type: string}
+        body: {type: string}
+        createdAt: {type: string, format: date-time}
+        parentId: {type: integer, format: int64, nullable: true}
+        replyTo: {type: string, nullable: true}
+        avatarKey: {type: string, nullable: true}
+    Reaction:
+      type: object
+      required: [liked, count]
+      properties:
+        liked: {type: boolean}
+        count: {type: integer, minimum: 0}
+    ReportForm:
+      type: object
+      required: [targetType, targetId, reason]
+      properties:
+        targetType: {type: string, enum: [POST, COMMENT]}
+        targetId: {type: integer, format: int64, minimum: 1}
+        reason: {type: string, maxLength: 240}
+    ForumReport:
+      allOf:
+        - $ref: '#/components/schemas/ReportForm'
+        - type: object
+          properties:
+            id: {type: integer, format: int64}
+            postId: {type: integer, format: int64}
+            reporter: {type: string}
+            content: {type: string}
+            createdAt: {type: string, format: date-time}
+    ReviewForm:
+      type: object
+      required: [action]
+      properties:
+        action: {type: string, enum: [HIDE, DELETE, DISMISS]}
+    ForumPage:
+      type: object
+      required: [page, size, total, totalPages]
+      properties:
+        page: {type: integer}
+        size: {type: integer}
+        total: {type: integer}
+        totalPages: {type: integer}
+    PostPage:
+      allOf:
+        - $ref: '#/components/schemas/ForumPage'
+        - type: object
+          required: [items]
+          properties:
+            items: {type: array, items: {$ref: '#/components/schemas/CommunityPost'}}
+    ScreeningComment:
+      type: object
+      required: [id, rootId, parentId, replyTo, authorName, avatarKey, body, createdAt, removed, replyCount, likeCount, liked]
+      properties:
+        id: {type: integer, format: int64}
+        rootId: {type: integer, format: int64, nullable: true}
+        parentId: {type: integer, format: int64, nullable: true}
+        replyTo: {type: string, nullable: true}
+        authorName: {type: string, nullable: true}
+        avatarKey: {type: string, nullable: true}
+        body: {type: string, nullable: true}
+        createdAt: {type: string, format: date-time}
+        removed: {type: boolean}
+        replyCount: {type: integer, format: int64, minimum: 0}
+        likeCount: {type: integer, format: int64, minimum: 0}
+        liked: {type: boolean}
+    ScreeningThread:
+      type: object
+      required: [comment, replies]
+      properties:
+        comment: {$ref: '#/components/schemas/ScreeningComment'}
+        replies:
+          type: array
+          items: {$ref: '#/components/schemas/ScreeningComment'}
+    ScreeningThreadPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: {$ref: '#/components/schemas/ScreeningThread'}
+    ScreeningReplyPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: {$ref: '#/components/schemas/ScreeningComment'}
+    CommentPage:
+      allOf:
+        - $ref: '#/components/schemas/ForumPage'
+        - type: object
+          required: [items]
+          properties:
+            items: {type: array, items: {$ref: '#/components/schemas/ForumComment'}}
+    ForumReportPage:
+      allOf:
+        - $ref: '#/components/schemas/ForumPage'
+        - type: object
+          required: [items]
+          properties:
+            items: {type: array, items: {$ref: '#/components/schemas/ForumReport'}}
+    Credentials:
+      type: object
+      required: [username, password]
+      properties:
+        username: {type: string, maxLength: 40}
+        password: {type: string, format: password, maxLength: 72, description: 最多 72 个 UTF-8 字节}
+    Registration:
+      allOf:
+        - $ref: '#/components/schemas/Credentials'
+        - type: object
+          required: [displayName]
+          properties:
+            username: {type: string, pattern: '^[A-Za-z0-9_]{3,40}$'}
+            password: {type: string, minLength: 8}
+            displayName: {type: string, maxLength: 60}
+    CsrfProof:
+      type: object
+      required: [headerName, token]
+      properties:
+        headerName: {type: string}
+        token: {type: string}
+    ProfileUpdate:
+      type: object
+      required: [displayName]
+      properties:
+        displayName: {type: string, maxLength: 60}
+        bio: {type: string, maxLength: 240, nullable: true}
+    Profile:
+      allOf:
+        - $ref: '#/components/schemas/ProfileUpdate'
+        - type: object
+          required: [id, username, accountRole]
+          properties:
+            id: {type: integer, format: int64}
+            username: {type: string}
+            accountRole: {type: string, enum: [MEMBER, ADMIN]}
+            avatarKey: {type: string, nullable: true}
+    SaveWork:
+      type: object
+      required: [favorite, wishlist, watchedEpisodes]
+      properties:
+        favorite: {type: boolean}
+        wishlist: {type: boolean}
+        watchStatus:
+          type: string
+          nullable: true
+          enum: [PLAN_TO_WATCH, WATCHING, COMPLETED, ON_HOLD, null]
+        watchedEpisodes: {type: integer, minimum: 0, maximum: 99999}
+      description: 番剧需收藏并填写追番状态，进度不可超过已知总集数。游戏可独立设置收藏和愿望单，进度填写零。
+    SavedWork:
+      type: object
+      required: [workId, workType, title, favorite, wishlist, watchedEpisodes]
+      properties:
+        workId: {type: integer, format: int64}
+        workType: {type: string, enum: [ANIME, GAME]}
+        title: {type: string}
+        coverUrl: {type: string, nullable: true}
+        coverAlt: {type: string, nullable: true}
+        episodeCount: {type: integer, nullable: true}
+        favorite: {type: integer, enum: [0, 1]}
+        wishlist: {type: integer, enum: [0, 1]}
+        watchStatus:
+          type: string
+          nullable: true
+          enum: [PLAN_TO_WATCH, WATCHING, COMPLETED, ON_HOLD, null]
+        watchedEpisodes: {type: integer, minimum: 0}
+    SavedWorkList:
+      type: array
+      items: {$ref: '#/components/schemas/SavedWork'}
+    SavedWorkEntry:
+      type: object
+      required: [item]
+      properties:
+        item:
+          type: object
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/SavedWork'
+    FilterSlug:
+      type: string
+      minLength: 1
+      maxLength: 60
+      pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+    Success:
+      type: object
+      required: [code, message]
+      properties:
+        code: {type: string, enum: [OK]}
+        message: {type: string}
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [INVALID_ARGUMENT, WORK_NOT_FOUND, ROUTE_NOT_FOUND, METHOD_NOT_ALLOWED,
+                 REQUEST_ERROR, DATABASE_UNAVAILABLE, CATALOG_NOT_INITIALIZED, INTERNAL_ERROR,
+                 LOGIN_REQUIRED, INVALID_CREDENTIALS, USERNAME_TAKEN, FORBIDDEN,
+                 COMMUNITY_NOT_FOUND, COMMUNITY_STORAGE_UNAVAILABLE]
+        message: {type: string}
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldIssue'
+    FieldIssue:
+      type: object
+      required: [field, message]
+      properties:
+        field: {type: string}
+        message: {type: string}
+    Category:
+      type: object
+      required: [id, slug, name, sortOrder]
+      properties:
+        id: {type: integer, format: int64}
+        slug: {type: string}
+        name: {type: string}
+        sortOrder: {type: integer, format: int32}
+    Tag:
+      type: object
+      required: [id, slug, name]
+      properties:
+        id: {type: integer, format: int64}
+        slug: {type: string}
+        name: {type: string}
+    Platform:
+      type: object
+      required: [id, slug, name]
+      properties:
+        id: {type: integer, format: int64}
+        slug: {type: string}
+        name: {type: string}
+    Image:
+      type: object
+      required: [id, kind, url, altText, sortOrder]
+      properties:
+        id: {type: integer, format: int64}
+        kind: {type: string, enum: [COVER, GALLERY]}
+        url: {type: string, description: 示例图片路径相对于后端服务根目录。}
+        altText: {type: string}
+        sortOrder: {type: integer, format: int32}
+    Work:
+      type: object
+      required: [id, type, slug, title, summary, releaseDate, category, cover]
+      properties:
+        id: {type: integer, format: int64}
+        type: {type: string, enum: [ANIME, GAME]}
+        slug: {type: string}
+        title: {type: string}
+        summary: {type: string}
+        releaseDate: {type: string, format: date, nullable: true}
+        category:
+          $ref: '#/components/schemas/Category'
+        cover:
+          type: object
+          nullable: true
+          description: 缺少封面时返回 null。
+          properties:
+            id: {type: integer, format: int64}
+            kind: {type: string, enum: [COVER]}
+            url: {type: string}
+            altText: {type: string}
+            sortOrder: {type: integer, format: int32}
+          required: [id, kind, url, altText, sortOrder]
+    AnimeInfo:
+      type: object
+      required: [episodeCount, studio, airingStatus]
+      properties:
+        episodeCount: {type: integer, format: int32, nullable: true}
+        studio: {type: string}
+        airingStatus: {type: string, enum: [UPCOMING, ONGOING, COMPLETED]}
+    GameInfo:
+      type: object
+      required: [developer, ageRating, platforms]
+      properties:
+        developer: {type: string}
+        ageRating: {type: string, nullable: true}
+        platforms:
+          type: array
+          items:
+            $ref: '#/components/schemas/Platform'
+    AnimeItem:
+      type: object
+      required: [work, anime, tags]
+      properties:
+        tags:
+          type: array
+          items: {$ref: '#/components/schemas/Tag'}
+        work:
+          $ref: '#/components/schemas/Work'
+        anime:
+          $ref: '#/components/schemas/AnimeInfo'
+    GameItem:
+      type: object
+      required: [work, game, tags]
+      properties:
+        tags:
+          type: array
+          items: {$ref: '#/components/schemas/Tag'}
+        work:
+          $ref: '#/components/schemas/Work'
+        game:
+          $ref: '#/components/schemas/GameInfo'
+    WorkDetail:
+      type: object
+      description: 按 work.type 返回 anime 或 game，另一属性省略。
+      required: [work, tags, images]
+      properties:
+        work:
+          $ref: '#/components/schemas/Work'
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+        images:
+          type: array
+          description: 封面在前，其余图片按 sortOrder 升序排列。
+          items:
+            $ref: '#/components/schemas/Image'
+        anime:
+          $ref: '#/components/schemas/AnimeInfo'
+        game:
+          $ref: '#/components/schemas/GameInfo'
+    PageInfo:
+      type: object
+      required: [page, size, total, totalPages]
+      properties:
+        page: {type: integer, format: int32, minimum: 1}
+        size: {type: integer, format: int32, minimum: 1, maximum: 100}
+        total: {type: integer, format: int64, minimum: 0}
+        totalPages: {type: integer, format: int64, minimum: 0}
+    AnimePage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AnimeItem'
+    GamePage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/GameItem'
+    CategoryResponse:
+      allOf:
+        - $ref: '#/components/schemas/Success'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Category'
+    AnimePageResponse:
+      allOf:
+        - $ref: '#/components/schemas/Success'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AnimePage'
+    GamePageResponse:
+      allOf:
+        - $ref: '#/components/schemas/Success'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/GamePage'
+    WorkDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Success'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/WorkDetail'

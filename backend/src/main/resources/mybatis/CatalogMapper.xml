@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fantasylibrary.persistence.mapper.CatalogMapper">
+  <select id="findCategories" resultType="com.fantasylibrary.catalog.model.Catalog$Category">
+    SELECT id, slug, name, sort_order
+    FROM fl_category
+    ORDER BY sort_order, id
+  </select>
+
+  <sql id="workColumns">
+    w.id, w.work_type AS type, w.slug, w.title, w.summary, w.release_date,
+    c.id AS category_id, c.slug AS category_slug, c.name AS category_name, c.sort_order AS category_sort_order,
+    cover.id AS cover_id, cover.resource_url AS cover_url, cover.alt_text AS cover_alt_text,
+    a.episode_count, a.studio, a.airing_status, g.developer, g.age_rating
+  </sql>
+
+  <sql id="workTables">
+    FROM fl_work w
+    JOIN fl_category c ON c.id = w.category_id
+    LEFT JOIN fl_anime a ON a.work_id = w.id
+    LEFT JOIN fl_game g ON g.work_id = w.id
+  </sql>
+
+  <sql id="coverJoin">
+    LEFT JOIN fl_work_image cover
+      ON cover.work_id = w.id AND cover.image_kind = 'COVER' AND cover.sort_order = 0
+  </sql>
+
+  <sql id="availableWork">
+    w.is_listed = 1 AND (a.work_id IS NOT NULL OR g.work_id IS NOT NULL)
+  </sql>
+
+  <sql id="filters">
+    WHERE w.work_type = #{type}
+      AND <include refid="availableWork"/>
+    <if test="query.category != null">
+      AND c.slug = #{query.category}
+    </if>
+    <bind name="selectedTags" value="query.filterTags()"/>
+    <if test="!selectedTags.isEmpty()">
+      <bind name="tagCount" value="selectedTags.size()"/>
+      AND (
+        SELECT COUNT(*)
+        FROM fl_work_tag wt
+        JOIN fl_tag t ON t.id = wt.tag_id
+        WHERE wt.work_id = w.id AND t.slug IN
+        <foreach collection="selectedTags" item="slug" open="(" separator="," close=")">#{slug}</foreach>
+      ) = #{tagCount}
+    </if>
+    <if test="query.keyword() != null">
+      AND (INSTR(LOWER(w.title), LOWER(#{query.keyword})) &gt; 0
+           OR INSTR(LOWER(w.summary), LOWER(#{query.keyword})) &gt; 0)
+    </if>
+  </sql>
+
+  <select id="countWorks" resultType="long">
+    SELECT COUNT(*)
+    <include refid="workTables"/>
+    <include refid="filters"/>
+  </select>
+
+  <select id="findWorks" resultType="com.fantasylibrary.persistence.mapper.CatalogMapper$WorkRow">
+    SELECT <include refid="workColumns"/>
+    <include refid="workTables"/>
+    <include refid="coverJoin"/>
+    <include refid="filters"/>
+    ORDER BY w.release_date DESC NULLS LAST, w.id DESC
+    OFFSET #{query.offset} ROWS FETCH NEXT #{query.size} ROWS ONLY
+  </select>
+
+  <select id="findWork" resultType="com.fantasylibrary.persistence.mapper.CatalogMapper$WorkRow">
+    SELECT <include refid="workColumns"/>
+    <include refid="workTables"/>
+    <include refid="coverJoin"/>
+    WHERE w.id = #{id} AND <include refid="availableWork"/>
+  </select>
+
+  <select id="findWorksByIds" resultType="com.fantasylibrary.persistence.mapper.CatalogMapper$WorkRow">
+    SELECT <include refid="workColumns"/>
+    <include refid="workTables"/>
+    <include refid="coverJoin"/>
+    WHERE <include refid="availableWork"/> AND w.id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </select>
+
+  <select id="availableTags" resultType="com.fantasylibrary.catalog.model.Catalog$Tag">
+    SELECT t.id, t.slug, t.name FROM fl_tag t
+    WHERE EXISTS (
+      SELECT 1 FROM fl_work_tag wt JOIN fl_work w ON w.id = wt.work_id
+      WHERE wt.tag_id = t.id AND w.work_type = #{type} AND w.is_listed = 1
+    )
+    ORDER BY t.slug
+  </select>
+
+  <select id="findWorkTags" resultType="com.fantasylibrary.persistence.mapper.CatalogMapper$WorkTag">
+    SELECT wt.work_id, t.id, t.slug, t.name FROM fl_work_tag wt JOIN fl_tag t ON t.id = wt.tag_id
+    WHERE wt.work_id IN
+    <foreach collection="workIds" item="workId" open="(" separator="," close=")">#{workId}</foreach>
+    ORDER BY wt.work_id, t.slug
+  </select>
+
+  <select id="findTags" resultType="com.fantasylibrary.catalog.model.Catalog$Tag">
+    SELECT t.id, t.slug, t.name
+    FROM fl_work_tag wt
+    JOIN fl_tag t ON t.id = wt.tag_id
+    WHERE wt.work_id = #{workId}
+    ORDER BY t.slug
+  </select>
+
+  <select id="findImages" resultType="com.fantasylibrary.catalog.model.Catalog$Image">
+    SELECT id, image_kind AS kind, resource_url AS url, alt_text, sort_order
+    FROM fl_work_image
+    WHERE work_id = #{workId}
+    ORDER BY image_kind, sort_order, id
+  </select>
+
+  <select id="findPlatforms" resultType="com.fantasylibrary.persistence.mapper.CatalogMapper$WorkPlatform">
+    SELECT gp.work_id, p.id, p.slug, p.name
+    FROM fl_game_platform gp
+    JOIN fl_platform p ON p.id = gp.platform_id
+    WHERE gp.work_id IN
+    <foreach collection="workIds" item="workId" open="(" separator="," close=")">
+      #{workId}
+    </foreach>
+    ORDER BY gp.work_id, p.sort_order, p.id
+  </select>
+</mapper>

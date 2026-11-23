@@ -1,0 +1,74 @@
+:root {
+  color-scheme: dark;
+  --library-header-height: 4.15rem;
+  --reading-font: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+  --display-font: "Noto Serif SC", "Songti SC", "STSong", SimSun, Georgia, serif;
+  --library-hall: var(--remote-library-hall, url('../assets/shelf/library-hall.webp'));
+  --walnut-grain: var(--remote-walnut-grain, url('../assets/shelf/walnut-grain.webp'));
+  --leather-grain: var(--remote-leather-grain, url('../assets/shelf/leather-grain.webp'));
+  --paper-grain: var(--remote-paper-grain, url('../assets/reader/parchment.webp'));
+
+  /* Core Fantasy Library Palette */
+  --wood-deep: #24160f;
+  --wood-shadow: #170d08;
+  --leather-shadow: #221610;
+  --paper-base: #ebd5aa;
+  --paper-surface: linear-gradient(180deg, #ebd5aad9, #e6cc98e0), var(--paper-grain) center / 38rem auto, var(--paper-base);
+  --paper-card: #f7e9c8a6;
+  --paper-ink: #39281a;
+  --paper-body: #473222;
+  --paper-muted: #664c36;
+  --paper-line: #8c68446e;
+  --paper-frame: #654635;
+  --paper-inset: inset 0 0 1.25rem #82583236;
+
+  --pine: #253d32;
+  --pine-hover: #325042;
+  --foil: #f3dbb0;
+  --candle-glow: #f5c982;
+  --brass: #d9b174;
+  --brass-frame: #b68b53;
+  --brass-line: #b68b5359;
+
+  --control-dark: #2b1d15;
+  --control-dark-hover: #442d1f;
+  --control-height: 2.75rem;
+  --control-radius: 0.25rem;
+  --surface-shadow: 0 0.7rem 2rem #0e0705ab;
+  --ink: #f4e7cb;
+  --muted: #ceb99a;
+  --line: #654b35;
+  --success: #bfd6a4;
+  --warning: #f5ae91;
+
+  font: 1rem / 1.6 var(--reading-font);
+  color: var(--ink);
+  background-color: var(--wood-shadow);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(ellipse at 50% 4%, #6a44275c, transparent 70%),
+    linear-gradient(125deg, #170c09b3, #1e110cd4),
+    var(--walnut-grain) center / 38rem auto,
+    var(--wood-deep);
+}
+
+:where(button, summary, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 3px;
+}
+
+:where(button, summary, a) { -webkit-tap-highlight-color: #c999514d; }
+:where(button, summary):active:not(:disabled) { filter: brightness(.94); }
+::selection { color: #21170e; background: #d6b576; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+  }
+}

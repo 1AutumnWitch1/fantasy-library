@@ -1,0 +1,49 @@
+MIT License
+
+Copyright (c) 2026 1AutumnWitch1
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Note on assets / 素材说明:
+
+This repository contains the source code of the project. It does **not**
+contain any third-party anime media. Real cover images, videos and other
+works' assets are supplied by the operator of each deployment and stored in
+MinIO; they are never committed to this repository (`uploads/`, `.env*` are
+git-ignored).
+
+The images under `frontend/src/assets/` and
+`backend/src/main/resources/static/api/media/` are original demo artwork
+created for showcasing the interface, and are covered by the MIT license
+above together with the rest of the source code.
+
+If you deploy this project with your own catalog data, please make sure you
+have the rights to the artwork, videos and metadata you import.
+
+本仓库只包含项目源码，**不包含任何第三方动漫素材**。真实封面、视频等资源
+由每个部署的使用者自行提供并存放于 MinIO，不会进入本仓库（`uploads/`、
+`.env*` 均已被 git 忽略）。
+
+`frontend/src/assets/` 与 `backend/src/main/resources/static/api/media/`
+下的图片是为展示界面制作的原创演示素材，随源码一同以 MIT 协议开源。
+
+如果你要用自己的馆藏数据部署本项目，请确保你拥有所导入图片、视频与元数据的
+相应权利。

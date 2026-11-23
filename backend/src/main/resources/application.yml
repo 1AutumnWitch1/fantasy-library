@@ -1,0 +1,39 @@
+spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 21MB
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  application:
+    name: fantasy-library
+  config:
+    import:
+      - optional:file:./backend/.env[.properties]
+      - optional:file:./.env[.properties]
+
+library:
+  downloads:
+    directory: ${GAME_DOWNLOAD_DIR:./uploads/game-downloads}
+  community:
+    upload-dir: ${COMMUNITY_UPLOAD_DIR:./uploads/community}
+  auth:
+    secure-cookie: ${AUTH_SECURE_COOKIE:false}
+  oracle:
+    jdbc-url: ${ORACLE_JDBC_URL:}
+    username: ${ORACLE_USERNAME:}
+    password: ${ORACLE_PASSWORD:}
+
+  media:
+    enabled: ${MEDIA_STORAGE_ENABLED:false}
+    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
+    bucket: ${MINIO_BUCKET:fantasy-library-media}
+    access-key: ${MINIO_ACCESS_KEY:}
+    secret-key: ${MINIO_SECRET_KEY:}
+
+mybatis:
+  mapper-locations: classpath:/mybatis/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    arg-name-based-constructor-auto-mapping: true
+    default-statement-timeout: 5

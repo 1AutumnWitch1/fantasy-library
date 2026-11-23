@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug 网络安全策略：允许明文 HTTP，便于直接访问局域网内的 Spring Boot
+  （例如 http://192.168.1.20:8080 或模拟器 http://10.0.2.2:8080）。
+  该文件只存在于 debug source set，Release 构建使用 main 中的严格策略。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

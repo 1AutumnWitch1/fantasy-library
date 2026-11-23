@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fantasylibrary.persistence.mapper.CommunityMapper">
+  <sql id="postFields">
+    p.id, p.author_id, a.display_name AS author_name, p.work_id, w.title AS work_title, p.topic, p.title,
+  </sql>
+  <sql id="postMeta">
+    TO_CHAR(p.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+    TO_CHAR(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at,
+    (SELECT COUNT(*) FROM fl_forum_like l WHERE l.post_id = p.id) AS like_count,
+    (SELECT COUNT(*) FROM fl_forum_comment c WHERE c.post_id = p.id AND c.state = 'VISIBLE') AS comment_count,
+    p.view_count,
+    (SELECT i.image_key FROM fl_forum_image i WHERE i.post_id = p.id AND i.position = 0) AS preview_image,
+    a.avatar_key
+  </sql>
+  <sql id="visiblePosts">
+    WHERE p.state = 'VISIBLE' AND p.screening_thread = 0
+    <if test="topic != null">AND p.topic = #{topic}</if>
+    <if test="workId != null">AND p.work_id = #{workId}</if>
+  </sql>
+  <select id="countPosts" resultType="long">
+    SELECT COUNT(*) FROM fl_forum_post p <include refid="visiblePosts"/>
+  </select>
+  <select id="posts" resultType="com.fantasylibrary.community.CommunityModels$Post">
+    SELECT <include refid="postFields"/> DBMS_LOB.SUBSTR(p.body, 220, 1) AS body, <include refid="postMeta"/>
+    FROM fl_forum_post p JOIN fl_account a ON a.id = p.author_id LEFT JOIN fl_work w ON w.id = p.work_id
+    <include refid="visiblePosts"/>
+    ORDER BY
+      <if test="order == @com.fantasylibrary.community.CommunityModels$PostOrder@HOT">
+        comment_count DESC, like_count DESC, p.view_count DESC,
+      </if>
+      p.created_at DESC, p.id DESC
+    OFFSET #{offset} ROWS FETCH NEXT #{size} ROWS ONLY
+  </select>
+  <select id="activePosts" resultType="com.fantasylibrary.community.CommunityModels$Post">
+    SELECT <include refid="postFields"/> DBMS_LOB.SUBSTR(p.body, 220, 1) AS body, <include refid="postMeta"/>,
+           GREATEST(p.created_at, COALESCE(reply.last_reply, p.created_at)) AS active_at
+    FROM fl_forum_post p JOIN fl_account a ON a.id = p.author_id LEFT JOIN fl_work w ON w.id = p.work_id
+    LEFT JOIN (
+      SELECT post_id, MAX(created_at) AS last_reply FROM fl_forum_comment
+      WHERE state = 'VISIBLE' AND created_at &gt;= SYSTIMESTAMP - INTERVAL '14' DAY
+      GROUP BY post_id
+    ) reply ON reply.post_id = p.id
+    WHERE p.state = 'VISIBLE' AND p.screening_thread = 0
+      AND EXISTS (SELECT 1 FROM fl_community_setting WHERE id = 1 AND is_open = 1)
+      AND (p.created_at &gt;= SYSTIMESTAMP - INTERVAL '14' DAY OR reply.last_reply IS NOT NULL)
+    <if test="type != null">
+      AND (w.work_type = #{type} OR (p.work_id IS NULL AND p.topic = #{type}))
+    </if>
+    ORDER BY active_at DESC, p.id DESC
+    FETCH FIRST #{limit} ROWS ONLY
+  </select>
+  <select id="post" resultType="com.fantasylibrary.community.CommunityModels$Post">
+    SELECT <include refid="postFields"/> p.body, <include refid="postMeta"/>
+    FROM fl_forum_post p JOIN fl_account a ON a.id = p.author_id LEFT JOIN fl_work w ON w.id = p.work_id
+    WHERE p.id = #{id} AND p.state = 'VISIBLE' AND p.screening_thread = 0
+  </select>
+  <select id="comments" resultType="com.fantasylibrary.community.CommunityModels$Comment">
+    SELECT c.id, c.post_id, c.parent_id, pa.display_name AS reply_to,
+           c.author_id, a.display_name AS author_name, c.body,
+           TO_CHAR(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at, a.avatar_key
+    FROM fl_forum_comment c JOIN fl_account a ON a.id = c.author_id
+    LEFT JOIN fl_forum_comment pc ON pc.id = c.parent_id AND pc.state = 'VISIBLE'
+    LEFT JOIN fl_account pa ON pa.id = pc.author_id
+    WHERE c.post_id = #{postId} AND c.state = 'VISIBLE'
+    ORDER BY c.created_at, c.id
+    OFFSET #{offset} ROWS FETCH NEXT #{size} ROWS ONLY
+  </select>
+  <sql id="screeningRows">
+    c.id, c.thread_root_id AS root_id, c.parent_id, pa.display_name AS reply_to,
+    CASE WHEN c.state = 'VISIBLE' THEN a.display_name END AS author_name,
+    CASE WHEN c.state = 'VISIBLE' THEN a.avatar_key END AS avatar_key,
+    CASE WHEN c.state = 'VISIBLE' THEN c.body END AS body,
+    TO_CHAR(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+    CASE WHEN c.state = 'VISIBLE' THEN 0 ELSE 1 END AS removed,
+    CASE WHEN c.parent_id IS NULL THEN (
+      SELECT COUNT(*) FROM fl_forum_comment r WHERE r.thread_root_id = c.id AND r.post_id = c.post_id AND r.state = 'VISIBLE'
+    ) ELSE 0 END AS reply_count,
+    CASE WHEN c.state = 'VISIBLE' THEN (
+      SELECT COUNT(*) FROM fl_screening_comment_like l WHERE l.comment_id = c.id
+    ) ELSE 0 END AS like_count,
+    CASE WHEN c.state = 'VISIBLE' AND EXISTS (
+      SELECT 1 FROM fl_screening_comment_like l WHERE l.comment_id = c.id AND l.user_id = #{viewer,jdbcType=NUMERIC}
+    ) THEN 1 ELSE 0 END AS liked
+  </sql>
+  <sql id="screeningAuthors">
+    JOIN fl_account a ON a.id = c.author_id
+    LEFT JOIN fl_forum_comment pc ON pc.id = c.parent_id AND pc.state = 'VISIBLE'
+    LEFT JOIN fl_account pa ON pa.id = pc.author_id
+  </sql>
+  <sql id="screeningRootsFilter">
+    c.post_id = #{postId} AND c.parent_id IS NULL AND (
+      c.state = 'VISIBLE' OR EXISTS (
+        SELECT 1 FROM fl_forum_comment r WHERE r.thread_root_id = c.id AND r.post_id = c.post_id AND r.state = 'VISIBLE'
+      )
+    )
+  </sql>
+  <select id="countScreeningThreads" resultType="long">
+    SELECT COUNT(*) FROM fl_forum_comment c WHERE <include refid="screeningRootsFilter"/>
+  </select>
+  <select id="screeningRoots" resultType="com.fantasylibrary.community.CommunityModels$ScreeningComment">
+    SELECT <include refid="screeningRows"/>
+    FROM (
+      SELECT c.* FROM fl_forum_comment c WHERE <include refid="screeningRootsFilter"/>
+      ORDER BY c.created_at DESC, c.id DESC OFFSET #{offset} ROWS FETCH NEXT #{size} ROWS ONLY
+    ) c <include refid="screeningAuthors"/>
+    ORDER BY c.created_at DESC, c.id DESC
+  </select>
+  <select id="screeningPreviews" resultType="com.fantasylibrary.community.CommunityModels$ScreeningComment">
+    SELECT <include refid="screeningRows"/>
+    FROM (
+      SELECT r.*, ROW_NUMBER() OVER (PARTITION BY r.thread_root_id ORDER BY r.created_at, r.id) AS position
+      FROM fl_forum_comment r WHERE r.post_id = #{postId} AND r.state = 'VISIBLE' AND r.thread_root_id IN
+      <foreach collection="rootIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    ) c <include refid="screeningAuthors"/>
+    WHERE c.position &lt;= 2
+    ORDER BY c.created_at, c.id
+  </select>
+  <select id="countScreeningReplies" resultType="long">
+    SELECT COUNT(*) FROM fl_forum_comment c WHERE c.post_id = #{postId} AND c.thread_root_id = #{root} AND c.state = 'VISIBLE'
+  </select>
+  <select id="screeningReplies" resultType="com.fantasylibrary.community.CommunityModels$ScreeningComment">
+    SELECT <include refid="screeningRows"/>
+    FROM fl_forum_comment c <include refid="screeningAuthors"/>
+    WHERE c.post_id = #{postId} AND c.thread_root_id = #{root} AND c.state = 'VISIBLE'
+    ORDER BY c.created_at, c.id OFFSET #{offset} ROWS FETCH NEXT #{size} ROWS ONLY
+  </select>
+  <select id="reports" resultType="com.fantasylibrary.community.CommunityModels$Report">
+    SELECT r.id, r.target_type, r.target_id, COALESCE(p.id, c.post_id) AS post_id,
+           CASE WHEN r.target_type = 'POST'
+                THEN p.title || CHR(10) || DBMS_LOB.SUBSTR(p.body, 500, 1)
+                ELSE c.body END AS content,
+           a.display_name AS reporter, r.reason,
+           TO_CHAR(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
+    FROM fl_forum_report r JOIN fl_account a ON a.id = r.reporter_id
+    LEFT JOIN fl_forum_post p ON r.target_type = 'POST' AND p.id = r.target_id
+    LEFT JOIN fl_forum_comment c ON r.target_type = 'COMMENT' AND c.id = r.target_id
+    WHERE r.state = 'OPEN'
+    ORDER BY r.created_at, r.id
+    OFFSET #{offset} ROWS FETCH NEXT #{size} ROWS ONLY
+  </select>
+</mapper>

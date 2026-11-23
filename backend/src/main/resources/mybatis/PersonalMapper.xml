@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fantasylibrary.persistence.mapper.PersonalMapper">
+  <select id="history" resultType="com.fantasylibrary.personal.PersonalModels$WatchEvent">
+    SELECT h.id, h.work_id, w.title, i.resource_url AS cover_url, h.watch_status, h.watched_episodes, a.episode_count,
+           TO_CHAR(h.recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at
+    FROM fl_watch_history h
+    JOIN fl_anime a ON a.work_id = h.work_id
+    JOIN fl_work w ON w.id = h.work_id
+    LEFT JOIN fl_work_image i ON i.work_id = h.work_id AND i.image_kind = 'COVER' AND i.sort_order = 0
+    WHERE h.user_id = #{userId}
+    ORDER BY h.recorded_at DESC, h.id DESC
+    OFFSET #{offset} ROWS FETCH NEXT #{size} ROWS ONLY
+  </select>
+
+  <sql id="visibleNotices">
+    FROM fl_inbox_notice n
+    JOIN fl_forum_post p ON p.id = n.post_id AND p.state = 'VISIBLE'
+    LEFT JOIN fl_forum_comment c ON c.id = n.comment_id AND c.state = 'VISIBLE'
+    WHERE n.recipient_id = #{userId}
+    AND (p.screening_thread = 0 OR EXISTS (SELECT 1 FROM fl_work w WHERE w.id = p.work_id AND w.is_listed = 1))
+    AND (p.screening_thread = 1 OR EXISTS (SELECT 1 FROM fl_community_setting WHERE id = 1 AND is_open = 1))
+    AND (
+      (n.kind = 'POST_LIKE' AND EXISTS (
+        SELECT 1 FROM fl_forum_like l WHERE l.post_id = n.post_id AND l.user_id = n.actor_id
+      ))
+      OR (c.id IS NOT NULL AND (n.kind = 'POST_COMMENT' OR EXISTS (
+        SELECT 1 FROM fl_forum_comment parent WHERE parent.id = c.parent_id AND parent.state = 'VISIBLE'
+      )))
+    )
+  </sql>
+
+  <select id="countNotices" resultType="long">
+    SELECT COUNT(*) <include refid="visibleNotices"/>
+    <if test="unreadOnly">AND n.read_at IS NULL</if>
+  </select>
+
+  <select id="notices" resultType="com.fantasylibrary.personal.PersonalModels$Notice">
+    SELECT feed.id, feed.kind, a.display_name AS actor_name, a.avatar_key, feed.post_id, feed.title AS post_title, feed.screening_work_id,
+           SUBSTR(feed.body, 1, 180) AS excerpt,
+           TO_CHAR(feed.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+           CASE WHEN feed.read_at IS NULL THEN 0 ELSE 1 END AS "READ"
+    FROM fl_account a JOIN (
+      SELECT n.id, n.actor_id, n.kind, n.post_id, p.title,
+             CASE WHEN p.screening_thread = 1 THEN p.work_id END AS screening_work_id,
+             c.body, n.created_at, n.read_at
+      <include refid="visibleNotices"/>
+      ORDER BY n.created_at DESC, n.id DESC
+      OFFSET #{offset} ROWS FETCH NEXT #{size} ROWS ONLY
+    ) feed ON feed.actor_id = a.id
+    ORDER BY feed.created_at DESC, feed.id DESC
+  </select>
+
+  <insert id="notifyComment">
+    INSERT INTO fl_inbox_notice (recipient_id, actor_id, post_id, comment_id, kind, created_at)
+    SELECT p.author_id, c.author_id, p.id, c.id, 'POST_COMMENT', c.created_at
+    FROM fl_forum_comment c JOIN fl_forum_post p ON p.id = c.post_id
+    LEFT JOIN fl_forum_comment parent ON parent.id = c.parent_id AND parent.state = 'VISIBLE'
+    WHERE c.id = #{commentId} AND p.screening_thread = 0 AND p.author_id &lt;&gt; c.author_id
+      AND (parent.author_id IS NULL OR parent.author_id &lt;&gt; p.author_id)
+    UNION ALL
+    SELECT parent.author_id, c.author_id, c.post_id, c.id, 'COMMENT_REPLY', c.created_at
+    FROM fl_forum_comment c JOIN fl_forum_comment parent ON parent.id = c.parent_id AND parent.state = 'VISIBLE'
+    WHERE c.id = #{commentId} AND parent.author_id &lt;&gt; c.author_id
+  </insert>
+
+  <update id="notifyLike">
+    MERGE INTO fl_inbox_notice n
+    USING (SELECT id AS post_id, author_id FROM fl_forum_post WHERE id = #{postId} AND author_id &lt;&gt; #{actorId}) p
+    ON (n.recipient_id = p.author_id AND n.actor_id = #{actorId} AND n.post_id = p.post_id AND n.kind = 'POST_LIKE')
+    WHEN NOT MATCHED THEN INSERT (recipient_id, actor_id, post_id, kind)
+      VALUES (p.author_id, #{actorId}, p.post_id, 'POST_LIKE')
+  </update>
+</mapper>

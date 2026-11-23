@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fantasylibrary.persistence.mapper.RecommendationMapper">
+  <sql id="eligible">
+    <include refid="com.fantasylibrary.persistence.mapper.CatalogMapper.workTables"/>
+    WHERE <include refid="com.fantasylibrary.persistence.mapper.CatalogMapper.availableWork"/>
+    <if test="type != null">AND w.work_type = #{type}</if>
+    <if test="excludeUser != null">
+      AND NOT EXISTS (SELECT 1 FROM fl_saved_work s WHERE s.user_id = #{excludeUser} AND s.work_id = w.id)
+    </if>
+  </sql>
+
+  <select id="popular" resultType="com.fantasylibrary.recommendation.RecommendationModels$Heat">
+    WITH eligible AS (
+      SELECT w.id <include refid="eligible"/>
+    ), saves AS (
+      SELECT s.work_id, SUM(s.favorite) AS favorite_count, SUM(s.wishlist) AS wishlist_count
+      FROM fl_saved_work s JOIN eligible e ON e.id = s.work_id
+      GROUP BY s.work_id
+    ), engagement AS (
+      SELECT p.work_id, SUM(p.view_count) AS view_count,
+             SUM((SELECT COUNT(*) FROM fl_forum_comment c WHERE c.post_id = p.id AND c.state = 'VISIBLE')) AS comment_count,
+             SUM((SELECT COUNT(*) FROM fl_forum_like l WHERE l.post_id = p.id)) AS like_count
+      FROM fl_forum_post p JOIN eligible e ON e.id = p.work_id
+      WHERE p.state = 'VISIBLE'
+      GROUP BY p.work_id
+    ), stats AS (
+      SELECT e.id AS work_id, COALESCE(s.favorite_count, 0) AS favorite_count,
+             COALESCE(s.wishlist_count, 0) AS wishlist_count, COALESCE(p.comment_count, 0) AS comment_count,
+             COALESCE(p.like_count, 0) AS like_count, COALESCE(p.view_count, 0) AS view_count
+      FROM eligible e LEFT JOIN saves s ON s.work_id = e.id LEFT JOIN engagement p ON p.work_id = e.id
+    )
+    SELECT work_id, favorite_count, wishlist_count, comment_count, like_count, view_count,
+           4 * favorite_count + 2 * wishlist_count + 3 * comment_count + 2 * like_count + LEAST(view_count, 100) AS score
+    FROM stats
+    WHERE favorite_count + wishlist_count + comment_count + like_count + view_count &gt; 0
+    ORDER BY score DESC, work_id DESC
+    FETCH FIRST #{limit} ROWS ONLY
+  </select>
+
+  <select id="newest" resultType="long">
+    SELECT w.id <include refid="eligible"/>
+    ORDER BY w.added_at DESC NULLS LAST, w.release_date DESC NULLS LAST, w.id DESC
+    FETCH FIRST #{limit} ROWS ONLY
+  </select>
+
+  <select id="editorial" resultType="long">
+    SELECT w.id <include refid="eligible"/>
+    AND w.editorial_rank IS NOT NULL
+    ORDER BY w.editorial_rank, w.id
+    FETCH FIRST #{limit} ROWS ONLY
+  </select>
+
+  <select id="savedTags" resultType="com.fantasylibrary.persistence.mapper.CatalogMapper$WorkTag">
+    SELECT s.work_id, t.id, t.slug, t.name FROM fl_saved_work s
+    JOIN fl_work_tag wt ON wt.work_id = s.work_id
+    JOIN fl_tag t ON t.id = wt.tag_id
+    WHERE s.user_id = #{userId}
+  </select>
+
+  <select id="candidateTraits" resultType="com.fantasylibrary.persistence.mapper.RecommendationMapper$CandidateTrait">
+    SELECT w.id AS work_id, w.work_type AS type, wt.tag_id
+    <include refid="com.fantasylibrary.persistence.mapper.CatalogMapper.workTables"/>
+    LEFT JOIN fl_work_tag wt ON wt.work_id = w.id
+    WHERE <include refid="com.fantasylibrary.persistence.mapper.CatalogMapper.availableWork"/>
+    <if test="type != null">AND w.work_type = #{type}</if>
+    AND NOT EXISTS (SELECT 1 FROM fl_saved_work s WHERE s.user_id = #{excludeUser} AND s.work_id = w.id)
+    ORDER BY w.id, wt.tag_id
+  </select>
+
+  <select id="intakeDates" resultType="com.fantasylibrary.persistence.mapper.RecommendationMapper$Intake">
+    SELECT id AS work_id, TO_CHAR(added_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS added_at
+    FROM fl_work WHERE id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </select>
+</mapper>

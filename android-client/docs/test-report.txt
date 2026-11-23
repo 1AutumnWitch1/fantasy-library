@@ -1,0 +1,27 @@
+# 单元测试 + 真实后端契约测试 运行记录
+
+- 生成时间：2026-11-23 15:15:29
+- 运行方式：JUnitCore 直接运行（本机 Gradle Test worker 受执行环境管道限制，改用等价方式运行同一批测试类）
+- 被测后端：http://127.0.0.1:8080（Windows + Docker Compose + Oracle + MinIO，真实运行中）
+- 测试类：MediaUrlsTest / ServerAddressTest / ApiParsingTest / FailuresTest / LiveBackendContractTest
+
+```
+JUnit version 4.13.2
+..........................................[live] work=110 episode=1 source=/api/media/playback/0290e37e-a88f-444f-89c9-b5333448fa6a.mp4 quality=1080p
+.[live] RANGE /api/media/playback/0290e37e-a88f-444f-89c9-b5333448fa6a.mp4 -> 206 Content-Range=bytes 0-1/4068399266 Accept-Ranges=bytes
+.[live] GET /api/health -> 200 {"application":"UP","database":"UP"}
+.[live] GET /api/media/catalog/uploads/665374d6-561b-435a-8c58-8be74428f614.jpg -> 200 type=image/jpeg length=175775
+.[live] GET /api/auth/csrf -> {"code":"OK","message":"请求成功","data":{"headerName":"X-XSRF-TOKEN","token":"MT_hDkm4ALILtOgDvq-EM74iGSh3NeKOn5GCtAIJdtBpVAp5UFvTbXqMOIAmh45n2IKwBIhDNElOVoSj_aS31zc-EOJbNmhJ"}} cookies=[XSRF-TOKEN]
+[live] POST /api/auth/login (wrong password) -> 401 {"code":"INVALID_CREDENTIALS","message":"账号名或密码不正确"}
+.[live] GET /api/anime?page=1&size=3 -> 200
+[live] total=5 totalPages=2 items=3
+[live]   #110 OVERLORD cover=/api/media/catalog/uploads/665374d6-561b-435a-8c58-8be74428f614.jpg
+[live]   #83 电锯人 cover=/api/media/catalog/uploads/3cd16862-db55-49e4-b5e0-bf6e4d61d6e3.png
+[live]   #103 游戏人生剧场版 cover=/api/media/catalog/uploads/ef7ad8f2-391f-4e09-ae96-e4d53563a3db.webp
+
+Time: 1.275
+
+OK (47 tests)
+
+
+```

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      仅作为 Activity 的容器主题：真正的视觉语言由 Compose 的 LibraryTheme 提供。
+      这里提前设置窗口背景，避免冷启动时闪白。
+    -->
+    <style name="Theme.FantasyLibrary" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/walnut_deep</item>
+        <item name="android:statusBarColor">@color/walnut_deep</item>
+        <item name="android:navigationBarColor">@color/walnut_deep</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">@color/brass</item>
+    </style>
+</resources>

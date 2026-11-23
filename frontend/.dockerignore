@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+*.tsbuildinfo
+.git
+.idea
+*.iml
+.vscode
+.env*
+Dockerfile
+README.md

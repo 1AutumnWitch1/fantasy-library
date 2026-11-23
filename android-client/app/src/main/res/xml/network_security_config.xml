@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Release 网络安全策略：禁止一切明文 HTTP，只允许 HTTPS。
+  服务端地址由用户输入，运行时还会再次校验（见 ServerAddress / ApiConfig），
+  即使误填 http:// 也会被拒绝，而不会静默降级。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

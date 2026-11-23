@@ -1,0 +1,40 @@
+# ===== 环境与密钥（绝对不要提交） =====
+.env
+.env.*
+!.env.example
+*.local
+
+# ===== 前端 =====
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# ===== 后端 =====
+target/
+*.log
+
+# ===== 打包产物 / 二进制 =====
+*.zip
+*.apk
+android-client/dist/
+
+# ===== Android（Gradle / IDE 产物） =====
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+.kotlin/
+local.properties
+
+# ===== IDE / 系统 =====
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ===== 用户媒体（真实动漫封面/视频存在 MinIO 中，绝不入库） =====
+backend/uploads/
+uploads/
