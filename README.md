@@ -200,6 +200,36 @@ Android 侧的契约测试会真实请求 `/api/health`、`/api/anime`、分集�
 - **真实动漫封面与视频不在仓库**：它们由部署者自行导入并存放于 MinIO（`uploads/` 已被忽略）
 - 使用本项目部署时，请自行确认所导入作品素材的授权
 
+## 日常更新（提交 / 推送）
+
+改完代码后，任选一种方式同步到 GitHub：
+
+**方式一 · 一条命令（推荐）**
+
+```powershell
+cd D:\project\fantasy-library
+.\tools\push.ps1 "feat: 新增某某功能"
+```
+
+脚本会 `git add -A` → 提交 → 推送；没有改动时直接提示，不产生空提交；推送失败会保留本地提交并给出重试命令。
+
+**方式二 · Git 别名**
+
+```bash
+git sync "feat: 新增某某功能"   # add + commit + push
+git st                          # status -sb
+git last                        # 最近 5 条提交
+```
+
+**方式三 · Android Studio / IDEA 图形界面**
+
+- `Ctrl+K` 提交（先勾选要提交的文件，写好信息）
+- `Ctrl+Shift+K` 推送；或提交时点 **Commit and Push**
+- 底部 `Git` 工具窗口 → `Log` 查看历史、回滚某次提交
+
+> 推送走 SSH（`~/.ssh/config` 里已绑定 `github.com` 的密钥），不依赖代理；
+> 若改用 HTTPS 地址，则需要配置 `http.proxy` 与 Personal Access Token。
+
 ## 原有详细文档
 
 以下保留项目原有的阶段性开发与运维记录（Docker 用法、数据库迁移、各阶段实现说明等）。
