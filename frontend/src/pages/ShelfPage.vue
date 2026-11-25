@@ -5,6 +5,9 @@ import { measureBook, type BookRect } from '../reader/bookGeometry'
 import { saveDataEnabled } from '../reader/preferences'
 import Bookshelf from '../components/shelf/Bookshelf.vue'
 import LibraryAtmosphere from '../components/shelf/LibraryAtmosphere.vue'
+import ShelfMascot from '../components/shelf/ShelfMascot.vue'
+
+const mascotAvailable = import.meta.env.VITE_LIVE2D_AVAILABLE === 'true'
 import { findReaderBook } from '../data/readerBooks'
 import { shelfBooks, type ShelfBookId } from '../data/shelfBooks'
 import type { BookDefinition } from '../reader/bookTypes'
@@ -21,7 +24,10 @@ const shelf = useShelfStore()
 const route = useRoute()
 const router = useRouter()
 const library = ref<HTMLElement | null>(null)
-const reader = shallowRef<{ book: BookDefinition; origin: BookRect; source: HTMLButtonElement } | null>(null)
+const reader = shallowRef<{
+  book: BookDefinition; origin: BookRect; source: HTMLButtonElement
+  animateOpening: boolean; restoreCatalog: boolean
+} | null>(null)
 const requestedBook = computed(() => route.name === 'book' ? findReaderBook(route.params.bookId) : undefined)
 
 function openRequestedBook() {
@@ -30,8 +36,9 @@ function openRequestedBook() {
 
   const source = library.value?.querySelector<HTMLButtonElement>('[data-book-id="' + book.spine.id + '"]')
   if (!source) return
-  source.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' })
-  reader.value = { book, origin: measureBook(source), source }
+  const animateOpening = route.meta.animateBookOpening !== false
+  if (animateOpening) source.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' })
+  reader.value = { book, origin: measureBook(source), source, animateOpening, restoreCatalog: route.meta.restoreCatalog === true }
   shelf.selectBook(book.spine.id)
 }
 
@@ -64,25 +71,29 @@ async function restoreBook() {
 <template>
   <main ref="library" class="library-home">
     <LibraryAtmosphere />
-    <div class="shelf-content">
-      <div class="shelf-heading">
-        <div class="heading-rule" aria-hidden="true"><span></span></div>
-        <h1>馆藏书架</h1>
-        <p>入夜开馆 · 从木架上取下一册翻阅</p>
+    <div class="shelf-layout">
+      <div class="shelf-content">
+        <div class="shelf-heading">
+          <div class="heading-rule" aria-hidden="true"><span></span></div>
+          <h1>馆藏书架</h1>
+          <p>入夜开馆 · 从木架上取下一册翻阅</p>
+        </div>
+
+        <Bookshelf :books="shelfBooks" :selected-id="shelf.selectedBookId"
+          :lifted-id="reader?.book.spine.id" @pointerenter="warmReader" @focusin="warmReader" @select="selectBook" />
+
+        <p class="shelf-selection" role="status">
+          <template v-if="shelf.selectedBook">
+            <span aria-hidden="true"></span>已选中《{{ shelf.selectedBook.title }}》
+          </template>
+        </p>
       </div>
-
-      <Bookshelf :books="shelfBooks" :selected-id="shelf.selectedBookId"
-        :lifted-id="reader?.book.spine.id" @pointerenter="warmReader" @focusin="warmReader" @select="selectBook" />
-
-      <p class="shelf-selection" role="status">
-        <template v-if="shelf.selectedBook">
-          <span aria-hidden="true"></span>已选中《{{ shelf.selectedBook.title }}》
-        </template>
-      </p>
+      <ShelfMascot v-if="mascotAvailable" :active="!requestedBook && !reader" />
     </div>
 
     <Book v-if="reader" :key="reader.book.spine.id" :book="reader.book"
       :origin="reader.origin" :source="reader.source" :close-requested="requestedBook !== reader.book"
+      :animate-opening="reader.animateOpening" :restore-catalog="reader.restoreCatalog"
       @request-close="returnToShelf" @closed="restoreBook" />
   </main>
 </template>
@@ -96,6 +107,23 @@ async function restoreBook() {
   min-height: calc(100vh - var(--library-header-height));
   min-height: calc(100svh - var(--library-header-height));
   background: var(--wood-deep);
+}
+
+.shelf-layout {
+  width: min(100%, 96rem);
+  margin-inline: auto;
+}
+
+@media (min-width: 72rem) {
+  .shelf-layout:has(.library-mascot--shown) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(14rem, 23vw, 24rem);
+    align-items: center;
+
+    .shelf-content {
+      padding-inline-end: clamp(.9rem, 1.6vw, 1.6rem);
+    }
+  }
 }
 
 .shelf-content {
@@ -168,7 +196,24 @@ async function restoreBook() {
 }
 
 @media (max-width: 42rem) {
-  .shelf-content {
+  .shelf-layout {
+  width: min(100%, 96rem);
+  margin-inline: auto;
+}
+
+@media (min-width: 72rem) {
+  .shelf-layout:has(.library-mascot--shown) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(14rem, 23vw, 24rem);
+    align-items: center;
+
+    .shelf-content {
+      padding-inline-end: clamp(.9rem, 1.6vw, 1.6rem);
+    }
+  }
+}
+
+.shelf-content {
     padding: 1.1rem 0.85rem 1.4rem;
   }
   .shelf-heading {

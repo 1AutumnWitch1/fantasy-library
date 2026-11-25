@@ -5,159 +5,130 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import com.fantasylibrary.android.data.network.Failure
-import com.fantasylibrary.android.data.network.FailureKind
-import com.fantasylibrary.android.data.network.Outcome
+import com.fantasylibrary.android.data.network.*
 import com.fantasylibrary.android.data.repository.CatalogRepository
+import com.fantasylibrary.android.data.repository.ReaderRepository
 import com.fantasylibrary.android.data.settings.SettingsRepository
 import com.fantasylibrary.android.di.AppContainer
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** 动漫 / 游戏列表共用的 ViewModel（分页、刷新、加载态、错误态）。 */
 class CatalogViewModel(
     val kind: CatalogKind,
-    private val catalogRepository: CatalogRepository,
-    private val settingsRepository: SettingsRepository,
+    private val catalog: CatalogRepository,
+    private val reader: ReaderRepository,
+    settings: SettingsRepository,
     private val allowCleartext: Boolean,
 ) : ViewModel() {
-
     data class UiState(
         val baseUrl: String = "",
+        val query: String = "",
+        val tags: List<TagDto> = emptyList(),
+        val selected: Set<String> = emptySet(),
         val items: List<CatalogCard> = emptyList(),
+        val popular: List<RankedDto> = emptyList(),
         val page: Int = 0,
-        val totalPages: Int = 0,
-        val total: Long = 0,
+        val hasMore: Boolean = false,
         val loading: Boolean = true,
         val loadingMore: Boolean = false,
         val error: Failure? = null,
-        val loadedOnce: Boolean = false,
-        val endReached: Boolean = false,
     )
 
-    private data class PageMeta(val page: Int, val total: Long, val totalPages: Int)
-
     private val _state = MutableStateFlow(UiState())
-    val state: StateFlow<UiState> = _state.asStateFlow()
-
-    private var started = false
+    val state = _state.asStateFlow()
+    private var request: Job? = null
+    private var metadata: Job? = null
+    private val type = if (kind == CatalogKind.ANIME) "ANIME" else "GAME"
 
     init {
         viewModelScope.launch {
-            settingsRepository.settings.collect { stored ->
-                val previous = _state.value.baseUrl
-                _state.update { it.copy(baseUrl = stored.baseUrl) }
-                if (stored.baseUrl != previous || !started) {
-                    started = true
-                    reload()
+            settings.settings.map { it.baseUrl }.distinctUntilChanged().collect { base ->
+                metadata?.cancel()
+                _state.update { UiState(baseUrl = base, query = it.query) }
+                refresh()
+                if (base.isNotBlank()) {
+                    metadata = viewModelScope.launch {
+                        launch {
+                            val tags = catalog.tags(base, type)
+                            if (tags is Outcome.Ok) _state.update { it.copy(tags = tags.value) }
+                        }
+                        if (kind == CatalogKind.GAME) {
+                            val feed = reader.recommendations(base, type = type)
+                            if (feed is Outcome.Ok) _state.update { it.copy(popular = feed.value.popular) }
+                        }
+                    }
                 }
             }
         }
     }
 
-    fun refresh() = reload()
+    fun search(value: String) {
+        val query = value.take(100)
+        if (query == _state.value.query) return
+        _state.update { it.copy(query = query) }
+        load(reset = true, delayMillis = 340)
+    }
 
-    private fun reload() {
-        val baseUrl = _state.value.baseUrl
-        if (baseUrl.isBlank()) {
-            _state.update {
-                it.copy(
-                    loading = false,
-                    error = Failure(
-                        FailureKind.NO_ADDRESS,
-                        "尚未配置服务器地址，请先到「连接」页填写并测试",
-                    ),
-                )
-            }
+    fun filter(slug: String?) {
+        _state.update {
+            val selected = if (slug == null) emptySet() else if (slug in it.selected) it.selected - slug else it.selected + slug
+            it.copy(selected = selected)
+        }
+        refresh()
+    }
+
+    fun refresh() = load(reset = true)
+    fun loadMore() = load(reset = false)
+
+    private fun load(reset: Boolean, delayMillis: Long = 0) {
+        val state = _state.value
+        if (!reset && (!state.hasMore || state.loading || state.loadingMore)) return
+        request?.cancel()
+        if (state.baseUrl.isBlank()) {
+            _state.update { it.copy(loading = false, error = Failure(FailureKind.NO_ADDRESS, "请先在连接设置中填写服务器地址。")) }
             return
         }
-        _state.update { it.copy(loading = true, loadingMore = false, error = null, endReached = false) }
-        viewModelScope.launch {
-            when (val result = fetch(baseUrl, page = 1, size = PAGE_SIZE)) {
-                is Outcome.Ok -> {
-                    val (cards, meta) = result.value
-                    _state.update {
-                        it.copy(
-                            items = cards,
-                            page = meta.page,
-                            total = meta.total,
-                            totalPages = meta.totalPages,
-                            loading = false,
-                            loadedOnce = true,
-                            error = null,
-                            endReached = meta.page >= meta.totalPages,
-                        )
-                    }
+        _state.update {
+            if (reset) it.copy(items = emptyList(), page = 0, hasMore = false, loading = true, loadingMore = false, error = null)
+            else it.copy(loadingMore = true, error = null)
+        }
+        request = viewModelScope.launch {
+            delay(delayMillis)
+            val page = if (reset) 1 else state.page + 1
+            val query = state.query.trim().takeIf { it.isNotBlank() }
+            val tags = state.selected.toList()
+            when (kind) {
+                CatalogKind.ANIME -> consume(catalog.animePage(state.baseUrl, page, 20, query, tags = tags)) {
+                    CatalogMapper.animeCard(it, state.baseUrl, allowCleartext)
                 }
-                is Outcome.Err -> _state.update {
-                    it.copy(loading = false, loadedOnce = true, error = result.failure)
+                CatalogKind.GAME -> consume(catalog.gamesPage(state.baseUrl, page, 20, query, tags = tags)) {
+                    CatalogMapper.gameCard(it, state.baseUrl, allowCleartext)
                 }
             }
         }
     }
 
-    fun loadMore() {
-        val current = _state.value
-        if (current.loadingMore || current.loading || current.endReached || current.baseUrl.isBlank()) return
-        _state.update { it.copy(loadingMore = true, error = null) }
-        viewModelScope.launch {
-            when (val result = fetch(current.baseUrl, page = current.page + 1, size = PAGE_SIZE)) {
-                is Outcome.Ok -> {
-                    val (cards, meta) = result.value
-                    _state.update {
-                        it.copy(
-                            items = it.items + cards,
-                            page = meta.page,
-                            total = meta.total,
-                            totalPages = meta.totalPages,
-                            loadingMore = false,
-                            endReached = meta.page >= meta.totalPages,
-                        )
-                    }
-                }
-                is Outcome.Err -> _state.update {
-                    it.copy(loadingMore = false, error = result.failure)
-                }
+    private fun <T> consume(result: Outcome<PageDto<T>>, map: (T) -> CatalogCard) {
+        _state.update { current ->
+            when (result) {
+                is Outcome.Ok -> current.copy(items = (current.items + result.value.items.map(map)).distinctBy { it.id },
+                    page = result.value.page, hasMore = result.value.page < result.value.totalPages,
+                    loading = false, loadingMore = false)
+                is Outcome.Err -> current.copy(loading = false, loadingMore = false, error = result.failure)
             }
-        }
-    }
-
-    private suspend fun fetch(
-        baseUrl: String,
-        page: Int,
-        size: Int,
-    ): Outcome<Pair<List<CatalogCard>, PageMeta>> = when (kind) {
-        CatalogKind.ANIME -> when (val result = catalogRepository.animePage(baseUrl, page, size)) {
-            is Outcome.Ok -> Outcome.Ok(
-                result.value.items.map { CatalogMapper.animeCard(it, baseUrl, allowCleartext) } to
-                    PageMeta(result.value.page, result.value.total, result.value.totalPages.toInt()),
-            )
-            is Outcome.Err -> result
-        }
-        CatalogKind.GAME -> when (val result = catalogRepository.gamesPage(baseUrl, page, size)) {
-            is Outcome.Ok -> Outcome.Ok(
-                result.value.items.map { CatalogMapper.gameCard(it, baseUrl, allowCleartext) } to
-                    PageMeta(result.value.page, result.value.total, result.value.totalPages.toInt()),
-            )
-            is Outcome.Err -> result
         }
     }
 
     companion object {
-        private const val PAGE_SIZE = 20
-
         fun factory(container: AppContainer, kind: CatalogKind): ViewModelProvider.Factory = viewModelFactory {
-            initializer {
-                CatalogViewModel(
-                    kind = kind,
-                    catalogRepository = container.catalogRepository,
-                    settingsRepository = container.settingsRepository,
-                    allowCleartext = container.apiClient.allowCleartext,
-                )
-            }
+            initializer { CatalogViewModel(kind, container.catalogRepository, container.readerRepository,
+                container.settingsRepository, container.apiClient.allowCleartext) }
         }
     }
 }

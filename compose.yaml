@@ -4,6 +4,8 @@ services:
   frontend:
     build:
       context: ./frontend
+      additional_contexts:
+        live2d: ${LIVE2D_CONTEXT:-./frontend}
       args:
         NODE_IMAGE: ${NODE_IMAGE:-node:22-bookworm-slim}
         NGINX_IMAGE: ${NGINX_IMAGE:-nginx:stable-alpine}

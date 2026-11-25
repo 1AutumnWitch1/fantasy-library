@@ -14,7 +14,6 @@ import com.fantasylibrary.android.di.AppContainer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -46,8 +45,7 @@ class LoginViewModel(
 
     init {
         viewModelScope.launch {
-            val stored = settingsRepository.settings.first()
-            _state.update { it.copy(baseUrl = stored.baseUrl) }
+            settingsRepository.settings.collect { stored -> _state.update { it.copy(baseUrl = stored.baseUrl) } }
         }
         viewModelScope.launch {
             authRepository.session.collect { info -> _state.update { it.copy(session = info) } }

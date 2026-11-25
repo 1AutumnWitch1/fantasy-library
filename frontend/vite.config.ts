@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig, loadEnv, type Connect, type Plugin } from 'vite'
 
@@ -38,6 +39,12 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [publicBoundary(), vue()],
+    define: {
+      'import.meta.env.VITE_LIVE2D_AVAILABLE': JSON.stringify(
+        existsSync(new URL('./public/live2d/core.js', import.meta.url)) &&
+        existsSync(new URL('./public/live2d/runtime.js', import.meta.url)) ? 'true' : 'false',
+      ),
+    },
     server: { proxy, strictPort: true },
     preview: { proxy, strictPort: true },
   }

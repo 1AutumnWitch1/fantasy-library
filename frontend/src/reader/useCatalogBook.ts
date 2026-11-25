@@ -9,12 +9,22 @@ interface ReadingQuery {
   selectedTags: readonly string[]
 }
 
-export function useCatalogBook(kind: CatalogKind, reading: ReadingQuery) {
-  const page = shallowRef<CatalogPageResult | null>(null)
+const catalogSnapshots = new WeakMap<ReadingQuery, {
+  page?: CatalogPageResult
+  filterKey?: string
+  tags?: NamedItem[]
+}>()
+
+export function useCatalogBook(kind: CatalogKind, reading: ReadingQuery, restore = false) {
+  const snapshot = catalogSnapshots.get(reading) ?? {}
+  catalogSnapshots.set(reading, snapshot)
+  const filterKey = () => JSON.stringify([reading.searchQuery.trim(), reading.selectedTags])
+  const matchesPage = restore && snapshot.page?.page === reading.spreadIndex + 1 && snapshot.filterKey === filterKey()
+  const page = shallowRef<CatalogPageResult | null>(matchesPage ? snapshot.page ?? null : null)
   const loading = ref(false)
   const error = ref('')
   const failedIndex = ref(0)
-  const tagOptions = shallowRef<NamedItem[]>([])
+  const tagOptions = shallowRef<NamedItem[]>(restore ? snapshot.tags ?? [] : [])
   const filterError = ref('')
   const filtersLoading = ref(false)
   let request: AbortController | undefined
@@ -36,7 +46,10 @@ export function useCatalogBook(kind: CatalogKind, reading: ReadingQuery) {
     filtersLoading.value = true
     try {
       const result = await getTags(kind, ticket.signal)
-      if (!ticket.signal.aborted) tagOptions.value = result
+      if (!ticket.signal.aborted) {
+        tagOptions.value = result
+        snapshot.tags = result
+      }
     } catch (reason) {
       if (!ticket.signal.aborted) filterError.value = catalogError(reason)
     } finally {
@@ -83,6 +96,8 @@ export function useCatalogBook(kind: CatalogKind, reading: ReadingQuery) {
   function commit(result: CatalogPageResult) {
     page.value = result
     reading.spreadIndex = result.page - 1
+    snapshot.page = result
+    snapshot.filterKey = filterKey()
   }
   function reload(index: number, debounce = false) {
     cancel()
@@ -96,9 +111,14 @@ export function useCatalogBook(kind: CatalogKind, reading: ReadingQuery) {
     if (debounce) timer = setTimeout(run, 220)
     else void run()
   }
+  function loadInitial() {
+    if (!restore || !snapshot.tags) void loadFilters()
+    if (!page.value) reload(reading.spreadIndex)
+  }
+
   const spread = computed(() => catalogSpread(kind, page.value,
     loading.value ? '正在查询馆藏…' : error.value ? '馆藏读取失败' : '没有匹配的作品'))
   onScopeDispose(() => { cancel(); filterRequest?.abort() })
   return { page, spread, loading, error, failedIndex, tagOptions, filterError, filtersLoading,
-    loadFilters, fetchPage, reload, cancel, commit }
+    loadInitial, loadFilters, fetchPage, reload, cancel, commit }
 }

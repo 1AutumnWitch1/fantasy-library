@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, toRef, toRefs, watch } from 'vue'
-import { closeBook, closedPosition, fadePage, openBook, prepareReader, turnLeaf } from '../../animations/readerMotion'
+import { closeBook, closedPosition, fadePage, openBook, prepareReader, showOpenReader, turnLeaf } from '../../animations/readerMotion'
 import type { ReaderMotionElements } from '../../animations/readerMotion'
 import { measureBook, type BookRect } from '../../reader/bookGeometry'
 import { movePage, type PageSide } from '../../reader/pagePosition'
@@ -29,6 +29,8 @@ const props = defineProps<{
   origin: BookRect
   source: HTMLButtonElement
   closeRequested: boolean
+  animateOpening: boolean
+  restoreCatalog: boolean
 }>()
 const emit = defineEmits<{ requestClose: []; closed: [] }>()
 
@@ -38,7 +40,7 @@ const phase = ref<ReaderPhase>('loading')
 const reader = useReaderStore()
 const reading = reader.stateFor(props.book.spine.id)
 const { spreadIndex, selectedTags, searchQuery, slideIndexes, carouselPaused } = toRefs(reading)
-const live = props.book.catalog ? useCatalogBook(props.book.catalog, reading) : null
+const live = props.book.catalog ? useCatalogBook(props.book.catalog, reading, props.restoreCatalog) : null
 const community = props.book.spine.id === 'community' ? useCommunityBook(reading) : null
 const personal = props.book.spine.id === 'personal' ? usePersonalBook(toRef(reader, 'personalChapter'), reading) : null
 const recommendations = props.book.spine.id === 'recommendations' ? useRecommendationBook(toRef(reader, 'recommendationType')) : null
@@ -206,8 +208,7 @@ onMounted(async () => {
   }
 
   if (live) {
-    void live.loadFilters()
-    live.reload(spreadIndex.value)
+    live.loadInitial()
   }
   viewport = window.matchMedia(compactReaderQuery)
   motionMedia = window.matchMedia(reducedMotionQuery)
@@ -229,6 +230,14 @@ onMounted(async () => {
     cover: physical.cover,
     flight: flight.value,
     spine: spine.value,
+  }
+
+  if (!props.animateOpening) {
+    showOpenReader(elements)
+    phase.value = 'ready'
+    dialog.value.showModal()
+    focusControl(closeButton.value)
+    return
   }
 
   prepareReader(elements)

@@ -35,6 +35,14 @@ export function prepareReader(elements: ReaderMotionElements) {
   gsap.set(flight, { autoAlpha: 0 })
 }
 
+export function showOpenReader({ backdrop, controls, book, board, cover, flight }: ReaderMotionElements) {
+  gsap.set([backdrop, ...controls], { autoAlpha: 1 })
+  gsap.set(book, { autoAlpha: 1, xPercent: 0 })
+  gsap.set(board, { clearProps: 'clipPath' })
+  gsap.set(cover, { autoAlpha: 0, rotationY: -180 })
+  gsap.set(flight, { autoAlpha: 0 })
+}
+
 export function openBook(
   elements: ReaderMotionElements,
   origin: BookRect,

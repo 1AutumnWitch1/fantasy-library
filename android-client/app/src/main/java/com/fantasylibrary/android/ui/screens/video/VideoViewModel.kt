@@ -1,201 +1,191 @@
 package com.fantasylibrary.android.ui.screens.video
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import com.fantasylibrary.android.data.network.EpisodeDto
-import com.fantasylibrary.android.data.network.Failure
-import com.fantasylibrary.android.data.network.MediaProbeReport
-import com.fantasylibrary.android.data.network.MediaUrls
-import com.fantasylibrary.android.data.network.Outcome
-import com.fantasylibrary.android.data.network.SourceDto
-import com.fantasylibrary.android.data.repository.CatalogRepository
-import com.fantasylibrary.android.data.repository.DiagnosticsRepository
-import com.fantasylibrary.android.data.settings.SettingsRepository
+import com.fantasylibrary.android.data.network.*
 import com.fantasylibrary.android.di.AppContainer
-import com.fantasylibrary.android.ui.screens.catalog.CatalogCard
-import com.fantasylibrary.android.ui.screens.catalog.CatalogMapper
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-/**
- * 视频播放测试：选动漫 → 选分集 → 选播放源，播放地址全部来自后端 /api/works/{id}/episodes。
- * 这里不硬编码任何视频地址。
- */
-class VideoViewModel(
-    private val catalogRepository: CatalogRepository,
-    private val diagnosticsRepository: DiagnosticsRepository,
-    private val settingsRepository: SettingsRepository,
-    private val allowCleartext: Boolean,
-    private val initialWorkId: Long? = null,
-) : ViewModel() {
+data class PlaybackNode(val label: String, val episodes: List<EpisodeDto>)
+data class VideoRecommendation(val entry: WorkEntryDto, val episode: EpisodeDto, val heat: HeatDto?, val studio: String?, val reason: String?)
 
-    data class UiState(
+class VideoViewModel(private val container: AppContainer, initialWorkId: Long) : ViewModel() {
+    data class State(
+        val workId: Long = 0,
         val baseUrl: String = "",
-        val allowCleartext: Boolean = true,
-        val anime: List<CatalogCard> = emptyList(),
-        val animeLoading: Boolean = true,
-        val animeError: Failure? = null,
-        val selectedWorkId: Long? = null,
-        val selectedTitle: String = "",
-        val episodes: List<EpisodeDto> = emptyList(),
-        val episodesLoading: Boolean = false,
-        val episodesError: Failure? = null,
-        val episodeIndex: Int = 0,
-        val sourceIndex: Int = 0,
-        val probing: Boolean = false,
-        val probe: MediaProbeReport? = null,
-        val notice: String? = null,
+        val detail: WorkDetailDto? = null,
+        val nodes: List<PlaybackNode> = emptyList(),
+        val node: Int = 0,
+        val episode: Int = 0,
+        val source: Int = 0,
+        val loading: Boolean = true,
+        val error: Failure? = null,
+        val recommendations: List<VideoRecommendation> = emptyList(),
+        val recommendationsLoading: Boolean = true,
+        val recommendationsError: Failure? = null,
+        val heat: HeatDto? = null,
     ) {
-        val episode: EpisodeDto? get() = episodes.getOrNull(episodeIndex)
-        val source: SourceDto? get() = episode?.sources?.getOrNull(sourceIndex)
-        val mediaCheck: MediaUrls.Check
-            get() = MediaUrls.resolve(source?.url, baseUrl, allowCleartext)
+        val selectedEpisode get() = nodes.getOrNull(node)?.episodes?.getOrNull(episode)
+        val selectedSource get() = selectedEpisode?.sources?.getOrNull(source)
     }
 
-    private val _state = MutableStateFlow(UiState(allowCleartext = allowCleartext))
-    val state: StateFlow<UiState> = _state.asStateFlow()
+    private data class Target(val workId: Long, val episodeId: Long? = null)
+    private val target = MutableStateFlow(Target(initialWorkId))
+    private val _state = MutableStateFlow(State(workId = initialWorkId))
+    val state = _state.asStateFlow()
+    private val retry = MutableStateFlow(0)
+    private val retryRecommendations = MutableStateFlow(0)
+    private val baseUrl = container.settingsRepository.settings.map { it.baseUrl }.distinctUntilChanged()
+    private var feedCache: Pair<String, FeedDto>? = null
+    private var studios: Pair<String, Map<Long, String>>? = null
+    private val available = mutableMapOf<Pair<String, Long>, EpisodeDto?>()
 
     init {
         viewModelScope.launch {
-            val stored = settingsRepository.settings.first()
-            _state.update { it.copy(baseUrl = stored.baseUrl) }
-            loadAnime()
-        }
-    }
-
-    fun loadAnime() {
-        val baseUrl = _state.value.baseUrl
-        if (baseUrl.isBlank()) {
-            _state.update {
-                it.copy(
-                    animeLoading = false,
-                    animeError = Failure(
-                        com.fantasylibrary.android.data.network.FailureKind.NO_ADDRESS,
-                        "尚未配置服务器地址，请先到「连接」页填写",
-                    ),
-                )
+            combine(baseUrl, target, retry) { base, current, _ -> base to current }.collectLatest { (base, current) ->
+                _state.update { before ->
+                    val next = if (before.workId == current.workId && before.baseUrl == base) before
+                    else State(workId = current.workId, baseUrl = base)
+                    next.copy(loading = base.isNotBlank(), error = null)
+                }
+                if (base.isBlank()) return@collectLatest
+                launch {
+                    val detail = container.catalogRepository.workDetail(base, current.workId)
+                    if (detail is Outcome.Ok) _state.update { it.copy(detail = detail.value) }
+                }
+                when (val result = container.catalogRepository.episodes(base, current.workId)) {
+                    is Outcome.Ok -> {
+                        val nodes = result.value.groupBy { it.nodeId to it.nodeLabel }.map { (key, items) ->
+                            PlaybackNode(key.second?.takeIf { it.isNotBlank() } ?: "馆内线路", items.sortedBy { it.number })
+                        }
+                        val node = nodes.indexOfFirst { group -> group.episodes.any { it.id == current.episodeId } }
+                            .takeIf { it >= 0 } ?: nodes.indexOfFirst { group -> group.episodes.any { playable(it, base) } }.coerceAtLeast(0)
+                        val episodes = nodes.getOrNull(node)?.episodes.orEmpty()
+                        val episode = episodes.indexOfFirst { it.id == current.episodeId && playable(it, base) }
+                            .takeIf { it >= 0 } ?: episodes.indexOfFirst { playable(it, base) }.coerceAtLeast(0)
+                        val source = episodes.getOrNull(episode)?.sources?.indexOfFirst { usable(it, base) }?.coerceAtLeast(0) ?: 0
+                        _state.update { it.copy(nodes = nodes, node = node, episode = episode, source = source, loading = false) }
+                    }
+                    is Outcome.Err -> _state.update { it.copy(error = result.failure, loading = false) }
+                }
             }
-            return
         }
-        _state.update { it.copy(animeLoading = true, animeError = null) }
         viewModelScope.launch {
-            when (val result = catalogRepository.animePage(baseUrl, page = 1, size = 50)) {
-                is Outcome.Ok -> {
-                    val cards = result.value.items.map {
-                        CatalogMapper.animeCard(it, baseUrl, allowCleartext)
-                    }
-                    _state.update { it.copy(animeLoading = false, anime = cards) }
-                    if (cards.isNotEmpty() && _state.value.selectedWorkId == null) {
-                        val preferred = initialWorkId?.let { id -> cards.firstOrNull { it.id == id } }
-                        selectWork(preferred ?: cards.first())
-                    }
-                }
-                is Outcome.Err -> _state.update {
-                    it.copy(animeLoading = false, animeError = result.failure)
-                }
+            combine(state.map { it.baseUrl to it.workId }.distinctUntilChanged(),
+                retryRecommendations) { key, attempts -> key to attempts }.collectLatest { (key, attempt) ->
+                val (base, currentId) = key
+                if (base.isBlank() || currentId <= 0) return@collectLatest
+                loadRecommendations(base, currentId, attempt)
             }
         }
     }
 
-    fun selectWork(card: CatalogCard) {
-        if (_state.value.selectedWorkId == card.id && _state.value.episodes.isNotEmpty()) return
+    private var lastRetry = 0
+    private suspend fun loadRecommendations(base: String, currentId: Long, attempt: Int) {
+        _state.update { it.copy(recommendationsLoading = true, recommendationsError = null) }
+        if (attempt != lastRetry) {
+            feedCache = null
+            studios = null
+            available.clear()
+            lastRetry = attempt
+        }
+        val cached = feedCache?.takeIf { it.first == base }?.second
+        val feed = cached ?: when (val response = container.readerRepository.recommendations(base, type = "ANIME")) {
+            is Outcome.Ok -> response.value.also { feedCache = base to it }
+            is Outcome.Err -> {
+                _state.update { it.copy(recommendationsLoading = false, recommendationsError = response.failure) }
+                return
+            }
+        }
+        val production = studios?.takeIf { it.first == base }?.second ?: when (val page = container.catalogRepository.animePage(base, 1, 50)) {
+            is Outcome.Ok -> page.value.items.mapNotNull { record ->
+                record.anime?.studio?.takeIf { it.isNotBlank() && it != "未知" }?.let { record.work.id to it }
+            }.toMap().also { studios = base to it }
+            is Outcome.Err -> emptyMap()
+        }
+        val heat = feed.popular.associate { it.entry.work.id to it.heat }
+        val reasons = feed.forYou.associate { it.entry.work.id to it.reason }
+        val candidates = (feed.forYou.map { it.entry } + feed.popular.map { it.entry } + feed.newest)
+            .distinctBy { it.work.id }.filter { it.work.id != currentId && it.work.type.equals("ANIME", true) }.take(12)
+        var lookupFailure: Failure? = null
+        val entries = mutableListOf<VideoRecommendation>()
+        for (batch in candidates.chunked(4)) {
+            val resolved = kotlinx.coroutines.coroutineScope {
+                batch.map { entry ->
+                    async {
+                        val id = entry.work.id
+                        val cacheKey = base to id
+                        val known = available.containsKey(cacheKey)
+                        var episode = available[cacheKey]
+                        var failure: Failure? = null
+                        if (!known) when (val response = container.catalogRepository.episodes(base, id)) {
+                            is Outcome.Ok -> {
+                                val playableEpisodes = response.value.filter { playable(it, base) }
+                                episode = playableEpisodes.firstOrNull { it.edition == "EPISODE" } ?: playableEpisodes.firstOrNull()
+                                available[cacheKey] = episode
+                            }
+                            is Outcome.Err -> failure = response.failure
+                        }
+                        episode?.let { VideoRecommendation(entry, it, heat[id], production[id], reasons[id]) } to failure
+                    }
+                }.awaitAll()
+            }
+            resolved.forEach { (entry, failure) ->
+                if (entry != null) entries.add(entry)
+                if (failure != null) lookupFailure = failure
+            }
+            if (entries.size >= 6) break
+        }
         _state.update {
-            it.copy(
-                selectedWorkId = card.id,
-                selectedTitle = card.title,
-                episodes = emptyList(),
-                episodeIndex = 0,
-                sourceIndex = 0,
-                probe = null,
-                notice = null,
-                episodesError = null,
-            )
+            it.copy(recommendations = entries.take(6), heat = heat[currentId], recommendationsLoading = false,
+                recommendationsError = if (entries.isEmpty()) lookupFailure else null)
         }
-        loadEpisodes(card.id)
     }
 
-    private fun loadEpisodes(workId: Long) {
-        val baseUrl = _state.value.baseUrl
-        _state.update { it.copy(episodesLoading = true, episodesError = null) }
-        viewModelScope.launch {
-            when (val result = catalogRepository.episodes(baseUrl, workId)) {
-                is Outcome.Ok -> {
-                    val withSources = result.value
-                    _state.update {
-                        it.copy(
-                            episodes = withSources,
-                            episodesLoading = false,
-                            episodeIndex = withSources.indexOfFirst { ep -> ep.sources.isNotEmpty() }
-                                .takeIf { index -> index >= 0 } ?: 0,
-                            sourceIndex = 0,
-                            probe = null,
-                        )
-                    }
+    fun openRecommendation(item: VideoRecommendation) {
+        target.value = Target(item.entry.work.id, item.episode.id)
+    }
+
+    fun selectNode(index: Int) {
+        _state.update { state ->
+            val node = state.nodes.getOrNull(index)
+            if (node == null || index == state.node) state
+            else {
+                val previous = state.selectedEpisode
+                val match = node.episodes.indexOfFirst {
+                    it.edition == previous?.edition && it.number == previous?.number && playable(it, state.baseUrl)
                 }
-                is Outcome.Err -> _state.update {
-                    it.copy(episodesLoading = false, episodesError = result.failure)
-                }
+                val episode = if (match >= 0) match else node.episodes.indexOfFirst { playable(it, state.baseUrl) }.coerceAtLeast(0)
+                state.copy(node = index, episode = episode,
+                    source = node.episodes.getOrNull(episode)?.sources?.indexOfFirst { usable(it, state.baseUrl) }?.coerceAtLeast(0) ?: 0)
             }
         }
     }
 
     fun selectEpisode(index: Int) {
-        _state.update {
-            if (index !in it.episodes.indices) it
-            else it.copy(episodeIndex = index, sourceIndex = 0, probe = null, notice = null)
+        _state.update { state ->
+            if (state.episode == index) state else state.copy(episode = index,
+                source = state.nodes.getOrNull(state.node)?.episodes?.getOrNull(index)?.sources
+                    ?.indexOfFirst { usable(it, state.baseUrl) }?.coerceAtLeast(0) ?: 0)
         }
     }
 
-    fun selectSource(index: Int) {
-        _state.update {
-            val episodes = it.episode?.sources.orEmpty()
-            if (index !in episodes.indices) it
-            else it.copy(sourceIndex = index, probe = null, notice = null)
-        }
-    }
+    fun selectSource(index: Int) { _state.update { it.copy(source = index) } }
+    fun reload() { retry.update { it + 1 } }
+    fun reloadRecommendations() { retryRecommendations.update { it + 1 } }
 
-    fun probeRange() {
-        val check = _state.value.mediaCheck
-        if (!check.ok) {
-            _state.update {
-                it.copy(
-                    notice = check.reason ?: "当前没有可用的播放地址",
-                    probe = null,
-                )
-            }
-            return
-        }
-        val url = check.resolved ?: return
-        _state.update { it.copy(probing = true, probe = null, notice = null) }
-        viewModelScope.launch {
-            val report = diagnosticsRepository.probeMedia(url)
-            _state.update { it.copy(probing = false, probe = report) }
-        }
-    }
-
-    fun clearNotice() = _state.update { it.copy(notice = null) }
+    private fun playable(episode: EpisodeDto, base: String): Boolean = episode.sources.any { usable(it, base) }
+    private fun usable(source: SourceDto, base: String): Boolean =
+        MediaUrls.resolve(source.url, base, container.apiClient.allowCleartext).ok
 
     companion object {
-        fun factory(
-            container: AppContainer,
-            initialWorkId: Long? = null,
-        ): ViewModelProvider.Factory = viewModelFactory {
-            initializer {
-                VideoViewModel(
-                    catalogRepository = container.catalogRepository,
-                    diagnosticsRepository = container.diagnosticsRepository,
-                    settingsRepository = container.settingsRepository,
-                    allowCleartext = container.apiClient.allowCleartext,
-                    initialWorkId = initialWorkId,
-                )
-            }
+        fun factory(container: AppContainer, initialWorkId: Long) = viewModelFactory {
+            initializer { VideoViewModel(container, initialWorkId) }
         }
     }
 }

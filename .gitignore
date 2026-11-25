@@ -37,4 +37,5 @@ Thumbs.db
 
 # ===== 用户媒体（真实动漫封面/视频存在 MinIO 中，绝不入库） =====
 backend/uploads/
+frontend/public/live2d/
 uploads/

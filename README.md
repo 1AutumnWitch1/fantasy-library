@@ -9,7 +9,7 @@
 ![android](https://img.shields.io/badge/Android-minSdk%2026-3ddc84)
 
 一个**完全本地运行**的「中古幻想图书馆」：复古书架与翻书动画呈现的动漫 / 游戏馆藏系统，配套
-Spring Boot REST API、Oracle 数据库、MinIO 私有媒体存储，以及一个原生 Android 测试客户端。
+Spring Boot REST API、Oracle 数据库、MinIO 私有媒体存储，以及原生 Android 用户端。
 
 所有服务都跑在自己的电脑上（Docker Compose），不依赖任何第三方在线服务；
 馆藏数据来自 Oracle，图片与视频经后端从 MinIO 流式提供。
@@ -33,7 +33,8 @@ Spring Boot REST API、Oracle 数据库、MinIO 私有媒体存储，以及一�
 
 **公开站（阅读端）**
 
-- 复古书架首页，书架 / 分类两种入口，书本展开与翻页动画
+- 复古书架首页，五本书从书架打开时播放开书动画，从子页面返回时直接恢复阅读
+- 首页可启用 Live2D 看板娘，显示开关会记住用户选择
 - 动漫与游戏馆藏列表、分页、按分类与标签筛选、关键词检索
 - 作品详情：简介、标签、插图、制作信息 / 开发商与平台
 - **放映室**：Media3 风格的自研播放器，从 MinIO 流式播放并支持 HTTP Range 拖动
@@ -49,7 +50,9 @@ Spring Boot REST API、Oracle 数据库、MinIO 私有媒体存储，以及一�
 
 **Android 客户端（`android-client/`）**
 
-- Kotlin + Jetpack Compose 原生应用，MVVM 分层
+- Kotlin + Jetpack Compose 原生应用，五根横向卷轴自上而下排列，分别进入追番、游戏、社区、推荐和个人书架
+- 右上角头像进入独立个人资料，登录后可查看自己的公开手稿及编辑昵称和简介
+- 放映室顶部固定 Media3 播放器，下方切换推荐和番剧评论时继续播放
 - 服务器地址配置（IP / 端口可改、可保存、可测连通性）
 - 真实读取 Oracle 馆藏、加载 MinIO 图片、播放 MinIO 视频（含全屏与进度拖动）
 - 真实 Cookie + CSRF 登录，无模拟数据、无硬编码视频地址
@@ -77,7 +80,7 @@ fantasy-library/
 │   ├── src/main/resources/mybatis                 # Mapper XML
 │   └── db/oracle/                                 # 建表与迁移脚本
 ├── docker/minio-init/   # 一次性初始化桶与访问密钥
-├── android-client/      # 原生 Android 测试客户端（独立 Gradle 工程）
+├── android-client/      # 原生 Android 用户端（独立 Gradle 工程）
 │   ├── app/src/main/java/com/fantasylibrary/android/{data,ui,di}
 │   ├── docs/            # 接口契约 / 网络配置 / 验收记录
 │   └── screenshots/     # 真机（模拟器）验收截图
@@ -122,6 +125,25 @@ docker compose --env-file .env.docker ps -a
 首次在新机器启动空卷时，先在 `FREEPDB1` 创建应用账号并执行 `backend/db/oracle/install.sql` 初始化示例数据，
 再导入 MinIO 素材；已有数据的机器直接挂载原有命名卷即可。
 
+### 可选的 Live2D 看板娘
+
+基础书架可直接构建。要启用看板娘，请从 Live2D 官方下载 Cubism SDK for Web 5-r.5 和「桃濑日和 PRO」示例模型，然后在仓库根目录整理为以下结构。
+
+```text
+demo/
+├── CubismSdkForWeb-5-r.5/
+│   ├── Core/
+│   ├── Framework/
+│   └── LICENSE.md
+└── hiyori_zh-Hans/hiyori_pro/
+    ├── runtime/
+    └── ReadMe.txt
+```
+
+本地运行 `npm run dev` 或 `npm run build` 时会自动读取上述目录，也可通过 `LIVE2D_ASSET_ROOT` 指定其他素材目录。Docker 构建时在本机 `.env.docker` 增加 `LIVE2D_CONTEXT=./demo`，再执行 `docker compose --env-file .env.docker up -d --build frontend`。
+
+Live2D SDK、桃濑日和模型和生成的网页资源由使用者在本机准备，适用 Live2D 官方条款。[Cubism Core 许可](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_cn.html) · [示例模型使用条款](https://www.live2d.com/eula/live2d-sample-model-terms_en.html)
+
 ## Android 客户端
 
 `android-client/` 是一个**独立的 Gradle 工程**，不参与 Web 端构建。
@@ -132,7 +154,7 @@ cd android-client
 ```
 
 在 Android Studio 里打开 `android-client/` 目录即可（Gradle JDK 选 17+）。
-App 首次启动会停在「连接」页，填写电脑地址后即可读取真实数据：
+App 首次启动进入「馆藏书架」。打开任一未连接的馆藏卷轴，即可找到「连接设置」。
 
 | 场景 | 填什么 |
 | --- | --- |
@@ -140,8 +162,9 @@ App 首次启动会停在「连接」页，填写电脑地址后即可读取真�
 | 真机（USB） | 先 `adb reverse tcp:8080 tcp:8080`，再填 `127.0.0.1` + `8080` |
 | 真机（局域网） | Docker 端口需绑定到 `0.0.0.0` 并放行防火墙，然后填电脑局域网 IP |
 
-五个页面：**连接配置** → **服务状态** → **动漫资料库** → **游戏资料库** → **放映室**，
-另有作品详情与登录页。合法 HTTP 只在 debug 构建放行，release 构建强制 HTTPS。
+从「追番」打开作品，再点「开始观看」进入放映室。推荐内容仅显示有可用播放来源的馆藏。番剧评论跨分集共享，支持分页、回复和点赞。Debug 版可使用 HTTP，Release 版使用 HTTPS。完整使用说明见 [Android 客户端 README](android-client/README.md)。
+
+目前公开接口提供番剧制作方、首播日期及作品封面。资料页通过公开社区分页筛选用户手稿。分集上传者、分集播放量、分集点赞及关注与粉丝计数需相应服务端接口。
 
 细节文档：
 
@@ -202,33 +225,17 @@ Android 侧的契约测试会真实请求 `/api/health`、`/api/anime`、分集�
 
 ## 日常更新（提交 / 推送）
 
-改完代码后，任选一种方式同步到 GitHub：
-
-**方式一 · 一条命令（推荐）**
+在项目根目录查看变更，逐项暂存本次要提交的代码，再核对提交清单。
 
 ```powershell
-cd D:\project\fantasy-library
-.\tools\push.ps1 "feat: 新增某某功能"
+git status --short
+git add -- README.md android-client/app/src android-client/README.md
+git diff --cached --name-only
+git commit -m "更新幻想图书馆"
+git push -u origin HEAD
 ```
 
-脚本会 `git add -A` → 提交 → 推送；没有改动时直接提示，不产生空提交；推送失败会保留本地提交并给出重试命令。
-
-**方式二 · Git 别名**
-
-```bash
-git sync "feat: 新增某某功能"   # add + commit + push
-git st                          # status -sb
-git last                        # 最近 5 条提交
-```
-
-**方式三 · Android Studio / IDEA 图形界面**
-
-- `Ctrl+K` 提交（先勾选要提交的文件，写好信息）
-- `Ctrl+Shift+K` 推送；或提交时点 **Commit and Push**
-- 底部 `Git` 工具窗口 → `Log` 查看历史、回滚某次提交
-
-> 推送走 SSH（`~/.ssh/config` 里已绑定 `github.com` 的密钥），不依赖代理；
-> 若改用 HTTPS 地址，则需要配置 `http.proxy` 与 Personal Access Token。
+上例只暂存 README 和 Android 客户端。修改 Web 时，按改动范围添加对应路径。本地环境文件、凭据、媒体备份、第三方素材和构建产物留在本机。Android Studio 和 IDEA 也可以通过 `Ctrl+K` 选择文件并提交，再用 `Ctrl+Shift+K` 推送。
 
 ## 原有详细文档
 

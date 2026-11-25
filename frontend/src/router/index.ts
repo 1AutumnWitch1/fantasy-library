@@ -60,8 +60,15 @@ export const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
-  if (to.name === 'book' && !findReaderBook(to.params.bookId)) return { name: 'shelf', replace: true }
+router.beforeEach((to, from) => {
+  if (to.name !== 'book') return
+  const book = findReaderBook(to.params.bookId)
+  if (!book) return { name: 'shelf', replace: true }
+  to.meta.animateBookOpening = from.name === 'shelf'
+  if (book.catalog) {
+    to.meta.restoreCatalog = from.name === 'work-detail' &&
+      (from.query.from == null || from.query.from === book.spine.id)
+  }
 })
 
 router.afterEach((to) => {

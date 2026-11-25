@@ -21,8 +21,9 @@ class CatalogRepository(private val client: ApiClient) {
         size: Int,
         query: String? = null,
         category: String? = null,
+        tags: List<String> = emptyList(),
     ): Outcome<PageDto<AnimeItemDto>> = callApi("读取动漫列表") {
-        client.api(baseUrl).anime(page = page, size = size, query = query, category = category)
+        client.api(baseUrl).anime(page = page, size = size, query = query, category = category, tags = tags)
     }
 
     suspend fun gamesPage(
@@ -31,9 +32,12 @@ class CatalogRepository(private val client: ApiClient) {
         size: Int,
         query: String? = null,
         category: String? = null,
+        tags: List<String> = emptyList(),
     ): Outcome<PageDto<GameItemDto>> = callApi("读取游戏列表") {
-        client.api(baseUrl).games(page = page, size = size, query = query, category = category)
+        client.api(baseUrl).games(page = page, size = size, query = query, category = category, tags = tags)
     }
+
+    suspend fun tags(baseUrl: String, type: String) = callApi("读取标签") { client.api(baseUrl).tags(type) }
 
     suspend fun categories(baseUrl: String): Outcome<List<CategoryDto>> = callApi("读取分类") {
         client.api(baseUrl).categories()
