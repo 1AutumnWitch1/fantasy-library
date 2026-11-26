@@ -1,146 +1,92 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { accountError, getSaved, needsLogin, removeSaved, saveWork, watchLabels, type SavedWork, type WatchStatus } from '../../api/account'
+import { useRoute, useRouter } from 'vue-router'
+import { accountError, getSaved, needsLogin, selectWork, type CollectionSelection, type SavedWork } from '../../api/account'
 import type { WorkDetail } from '../../api/catalog'
 import { useAccountStore } from '../../stores/account'
 
 const props = defineProps<{ detail: WorkDetail }>()
+const emit = defineEmits<{ changed: [] }>()
 const route = useRoute()
+const router = useRouter()
 const account = useAccountStore()
 const anime = computed(() => props.detail.work.type === 'ANIME')
 const saved = shallowRef<SavedWork | null>(null)
-const status = ref<WatchStatus>('PLAN_TO_WATCH')
-const episodes = ref(0)
-const favorite = ref(false)
-const wishlist = ref(false)
 const busy = ref(false)
-const loading = ref(false)
 const error = ref('')
-const notice = ref('')
 const retry = ref(0)
 const loaded = ref(false)
-const destination = computed(() => ({ name: 'account', query: { next: route.fullPath } }))
-
-function reset(item: SavedWork | null) {
-  saved.value = item
-  status.value = item?.watchStatus ?? 'PLAN_TO_WATCH'
-  episodes.value = item?.watchedEpisodes ?? 0
-  favorite.value = item?.favorite === 1
-  wishlist.value = item?.wishlist === 1
-}
+const login = () => router.push({ name: 'account', query: { next: route.fullPath } })
 
 watch([() => props.detail.work.id, () => account.profile?.id, retry], async ([id, userId], _, onCleanup) => {
   const request = new AbortController()
   onCleanup(() => request.abort())
-  reset(null)
+  saved.value = null
   loaded.value = false
   error.value = ''
-  notice.value = ''
-  loading.value = Boolean(userId)
   if (!userId) return
   try {
     const result = await getSaved(id, request.signal)
-    if (request.signal.aborted) return
-    reset(result.item)
-    loaded.value = true
+    if (!request.signal.aborted) {
+      saved.value = result.item
+      loaded.value = true
+    }
   } catch (reason) {
-    if (!request.signal.aborted) report(reason)
-  } finally {
-    if (!request.signal.aborted) loading.value = false
+    if (request.signal.aborted) return
+    if (needsLogin(reason)) account.signedOut()
+    else error.value = accountError(reason)
   }
 }, { immediate: true })
 
-function report(reason: unknown) {
-  if (needsLogin(reason)) account.signedOut()
-  else error.value = accountError(reason)
-}
-
-async function persist(remove = false) {
+async function change(kind: CollectionSelection, selected: boolean) {
+  if (!account.profile) { await login(); return }
+  if (!loaded.value || busy.value) return
   const id = props.detail.work.id
-  const userId = account.profile?.id
-  if (!userId || busy.value || !loaded.value) return
+  const user = account.profile.id
   busy.value = true
   error.value = ''
-  notice.value = ''
   try {
-    const deleting = remove || (!anime.value && !favorite.value && !wishlist.value)
-    const form = {
-      favorite: anime.value || favorite.value,
-      wishlist: !anime.value && wishlist.value,
-      watchStatus: anime.value ? status.value : null,
-      watchedEpisodes: anime.value ? episodes.value : 0,
-    }
-    const updated = deleting ? await removeSaved(id).then(() => null) : await saveWork(id, form)
-    if (id === props.detail.work.id && userId === account.profile?.id) {
-      reset(updated)
-      notice.value = updated ? '已保存到私人书架。' : '已从私人书架移除。'
+    const result = await selectWork(id, kind, selected)
+    if (id === props.detail.work.id && user === account.profile?.id) {
+      saved.value = result.item
+      emit('changed')
     }
   } catch (reason) {
-    report(reason)
-  } finally {
-    busy.value = false
-  }
+    if (user !== account.profile?.id || id !== props.detail.work.id) return
+    if (needsLogin(reason)) { account.signedOut(); await login() }
+    else error.value = accountError(reason)
+  } finally { busy.value = false }
 }
 </script>
 
 <template>
-  <section class="collection-panel" aria-labelledby="collection-title">
-    <h2 id="collection-title">{{ anime ? '追番收藏' : '游戏收藏与愿望单' }}</h2>
-    <p v-if="account.status === 'loading' || loading" role="status">正在翻阅私人记录…</p>
-    <p v-else-if="account.status === 'error'" role="alert">{{ account.error }}
-      <button type="button" @click="account.restore(true)">重试</button>
-    </p>
-    <p v-else-if="!account.profile"><RouterLink :to="destination">登录后{{ anime ? '记录追番' : '收藏游戏' }} ›</RouterLink></p>
-    <template v-else>
-      <p v-if="error" class="error" role="alert">{{ error }}
-        <button v-if="!loaded" type="button" @click="retry++">重试</button>
-      </p>
-      <form v-if="loaded" @submit.prevent="persist()">
-        <div v-if="anime" class="fields">
-          <label>追番状态
-            <select v-model="status" :disabled="busy">
-              <option v-for="(label, value) in watchLabels" :key="value" :value="value">{{ label }}</option>
-            </select>
-          </label>
-          <label>已看集数
-            <input v-model.number="episodes" inputmode="numeric" type="number" required
-              min="0" :max="detail.anime?.episodeCount ?? 99999" :disabled="busy">
-          </label>
-        </div>
-        <div v-else class="fields choices">
-          <label><input v-model="favorite" type="checkbox" :disabled="busy"> 游戏收藏</label>
-          <label><input v-model="wishlist" type="checkbox" :disabled="busy"> 游戏愿望单</label>
-        </div>
-        <div class="actions">
-          <button type="submit" :disabled="busy || (!anime && !saved && !favorite && !wishlist)">
-            {{ saved ? '保存更改' : '加入私人书架' }}
-          </button>
-          <button v-if="saved" type="button" class="remove" :disabled="busy" @click="persist(true)">移出书架</button>
-          <RouterLink :to="{ name: 'book', params: { bookId: 'personal' } }">查看书架 ›</RouterLink>
-        </div>
-        <p v-if="notice" role="status">{{ notice }}</p>
-      </form>
-    </template>
-  </section>
+  <div class="collection-panel" :aria-busy="busy || account.status === 'loading'">
+    <div class="collection-buttons" :class="{ 'collection-buttons--game': !anime }">
+      <button type="button" :disabled="busy || account.status === 'loading' || !!account.profile && !loaded"
+        :aria-pressed="saved?.favorite === 1" @click="change(anime ? 'FOLLOW' : 'FAVORITE', saved?.favorite !== 1)">
+        {{ anime ? (saved?.favorite === 1 ? '✓ 已追番' : '＋ 追番') : (saved?.favorite === 1 ? '★ 已收藏' : '☆ 收藏') }}
+      </button>
+      <button v-if="!anime" type="button" :disabled="busy || account.status === 'loading' || !!account.profile && !loaded"
+        :aria-pressed="saved?.wishlist === 1" @click="change('WISHLIST', saved?.wishlist !== 1)">
+        {{ saved?.wishlist === 1 ? '✓ 已加入愿望单' : '＋ 加入愿望单' }}
+      </button>
+    </div>
+    <p v-if="error" role="alert">{{ error }} <button v-if="!loaded" type="button" class="retry" @click="retry++">重试</button></p>
+  </div>
 </template>
 
-<style scoped lang="scss">
-.collection-panel { margin-top: 1.2rem; padding-top: .9rem; border-top: 1px solid #94744777; }
-h2 { margin: 0 0 .55rem; font: 700 1.25rem/1.25 var(--display-font); }
-p { margin: .55rem 0; }
-.fields, .actions { display: flex; align-items: flex-end; flex-wrap: wrap; gap: .5rem .7rem; }
-.actions { align-items: center; margin-top: .75rem; }
-label { display: grid; gap: .2rem; font-size: .93rem; }
-.choices label { display: flex; align-items: center; gap: .35rem; }
-input, select, button {
-  font: inherit; color: #442f1e; padding: .35rem .6rem; border: 1px solid #9b784b; border-radius: .15rem; background: #fff0bd90;
+<style scoped>
+.collection-buttons { display: flex; gap: .6rem; }
+.collection-buttons--game { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: min(100%, 26rem); }
+button {
+  font: 700 .95rem/1.35 var(--body-font, inherit); min-height: 2.75rem; padding: .45rem .8rem;
+  color: #302318; background: #ecd095; border: 1px solid #b68f55; border-radius: .28rem; cursor: pointer;
+  transition: transform .12s, background-color .15s; overflow-wrap: anywhere;
 }
-input[type=number] { max-width: 7rem; }
-input[type=checkbox] { accent-color: #364b3c; width: 1rem; height: 1rem; }
-button { min-height: 2.5rem; color: #f6e1b5; background: #314438; cursor: pointer; }
-button:disabled { opacity: .58; cursor: default; }
-.remove { background: #673f37; }
-a { color: #2d5641; }
-.error { color: #7d2b20; }
+button[aria-pressed="true"] { color: #f3dfb9; background: #354b3c; }
+button:disabled { opacity: .62; cursor: default; }
+button:active:not(:disabled) { transform: scale(.97); }
+button.retry { min-height: 2rem; }
+p { margin: .45rem 0 0; font-size: .85rem; }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } }
 </style>

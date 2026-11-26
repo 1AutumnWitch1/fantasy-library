@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { episodeLabel, type Episode, type PlaybackLine } from '../../api/playback'
 
 const props = defineProps<{
@@ -7,20 +7,34 @@ const props = defineProps<{
   activeLineId?: number
   activeEpisodeId?: number
   busy: boolean
+  compact?: boolean
+  completedEpisode?: number
 }>()
 const emit = defineEmits<{ line: [id: number]; episode: [item: Episode] }>()
 const reversed = ref(false)
+const grid = ref<HTMLUListElement | null>(null)
 const currentLine = computed(() => props.lines.find(item => item.id === props.activeLineId) ?? props.lines[0])
 const entries = computed(() => {
   const episodes = currentLine.value?.episodes ?? []
   return reversed.value ? [...episodes].reverse() : episodes
 })
+watch([grid, entries, () => props.activeEpisodeId], ([list]) => {
+  if (!props.compact || !list) return
+  const active = list.querySelector('[aria-current="true"]')
+  if (!active) return
+  const bounds = list.getBoundingClientRect()
+  const selected = active.getBoundingClientRect()
+  if (selected.top < bounds.top) list.scrollTop += selected.top - bounds.top
+  else if (selected.bottom > bounds.bottom) list.scrollTop += selected.bottom - bounds.bottom
+}, { flush: 'post' })
 </script>
 
 <template>
-  <section class="episode-picker" aria-label="在线播放">
+  <section class="episode-picker" :class="{ 'episode-picker--compact': compact }"
+    :aria-label="compact ? '选集与线路' : '在线播放'">
     <header>
-      <h2>播放来源与分集</h2>
+      <h2>{{ compact ? '选集与线路' : '播放来源与分集' }}</h2>
+      <span v-if="compact && entries.length" class="episode-count">{{ entries.length }} {{ entries.every(item => item.edition === 'EPISODE') ? '集' : '段' }}</span>
       <div class="picker-tools">
         <slot name="action" />
         <button v-if="entries.length > 1" class="sort-button" type="button"
@@ -39,12 +53,15 @@ const entries = computed(() => {
           </button>
         </div>
       </div>
-      <ul class="episode-grid" aria-label="当前来源的分集">
+      <ul ref="grid" class="episode-grid" aria-label="当前来源的分集"
+        :tabindex="compact ? 0 : undefined">
         <li v-for="stage in entries" :key="stage.id">
           <button type="button" :aria-current="activeEpisodeId === stage.id ? 'true' : undefined"
-            :title="stage.title" :disabled="busy" @click="emit('episode', stage)">
-            <span>{{ episodeLabel(stage) }}</span>
-            <small>{{ stage.title }}</small>
+            :title="stage.title" :aria-label="compact ? episodeLabel(stage) + (stage.edition === 'EPISODE' && completedEpisode === stage.number ? '，已观看' : '') : undefined"
+            :disabled="busy" @click="emit('episode', stage)">
+            <span>{{ compact && stage.edition === 'EPISODE' ? stage.number : episodeLabel(stage) }}</span>
+            <small v-if="!compact">{{ stage.title }}</small>
+            <span v-if="compact && stage.edition === 'EPISODE' && completedEpisode === stage.number" class="viewed-icon" aria-hidden="true">✓</span>
           </button>
         </li>
       </ul>
@@ -120,6 +137,41 @@ button[aria-pressed='true'], button[aria-current='true'] {
 }
 
 .episode-grid li { min-width: 0; }
+
+.episode-picker--compact {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  h2 { font-size: 1.28rem; }
+  header { justify-content: flex-start; gap: .38rem .5rem; margin-bottom: .55rem; }
+  .picker-tools { margin-inline-start: auto; }
+  .episode-count { color: var(--paper-muted); font-size: .77rem; }
+  .source-block { gap: .32rem .55rem; margin-bottom: .68rem; }
+  .line-tabs { flex: 1; min-width: 0; }
+  .line-tabs button { min-height: 2.1rem; padding: .24rem .55rem; overflow-wrap: anywhere; font-size: .82rem; }
+  .episode-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 3.65rem), 1fr));
+    gap: .36rem;
+    max-height: clamp(9rem, 36vh, 19rem);
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-color: #95815c #97734522;
+    padding: .38rem;
+    background: #a67c4218;
+  }
+  .episode-grid button {
+    position: relative;
+    min-height: 2.7rem;
+    padding-inline: .18rem;
+    background-color: #e6cc9b;
+    font-size: .91rem;
+    font-weight: 600;
+  }
+  .episode-grid button:hover:enabled { background: #f3dbad; }
+  .episode-grid button[aria-current='true'] { color: #ffe5a6; background: var(--pine); }
+  .viewed-icon { position: absolute; inset: .07rem .18rem auto auto; font-size: .64rem; }
+}
 .episode-grid button {
   display: grid;
   place-content: center;

@@ -137,6 +137,22 @@ interface FantasyApi {
     @PUT("api/me/collection/{id}")
     suspend fun save(@Path("id") id: Long, @Body form: SaveWorkDto): ApiEnvelope<SavedWorkDto>
 
+    @PUT("api/me/collection/{id}/selection/{kind}")
+    suspend fun selection(@Path("id") id: Long, @Path("kind") kind: String, @Body state: SelectionDto): ApiEnvelope<SavedEntryDto>
+
+    @GET("api/works/{id}/playback-stats")
+    suspend fun playbackStats(@Path("id") id: Long): ApiEnvelope<PlaybackStatsDto>
+
+    @GET("api/me/works/{id}/viewing-progress")
+    suspend fun viewingProgress(@Path("id") id: Long): ApiEnvelope<ViewingProgressDto>
+
+    @POST("api/works/{id}/playback-sessions")
+    suspend fun startPlayback(@Path("id") id: Long, @Body form: PlaybackStartDto): ApiEnvelope<PlaybackSessionDto>
+
+    @PUT("api/works/{id}/playback-sessions/{session}")
+    suspend fun samplePlayback(@Path("id") id: Long, @Path("session") session: String,
+        @Body form: PlaybackSampleDto): ApiEnvelope<PlaybackSampleResultDto>
+
     @DELETE("api/me/collection/{id}")
     suspend fun remove(@Path("id") id: Long): ApiEnvelope<JsonElement>
 

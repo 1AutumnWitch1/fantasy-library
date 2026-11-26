@@ -80,15 +80,19 @@ class LibrarySecurity {
                                    @Qualifier("handlerExceptionResolver") HandlerExceptionResolver errors) throws Exception {
         var paths = PathPatternRequestMatcher.withDefaults();
         var memberApi = paths.matcher("/api/me/**");
-        return sessionApi(http.securityMatcher("/api/auth/**", "/api/me/**"), csrfTokens, json)
+        var authApi = paths.matcher("/api/auth/**");
+        var playApi = paths.matcher("/api/works/{workId}/playback-sessions/**");
+        return sessionApi(http.securityMatcher(request -> authApi.matches(request)
+                        || memberApi.matches(request) || playApi.matches(request)), csrfTokens, json)
                 .authorizeHttpRequests(rules -> rules
+                        .requestMatchers(playApi).permitAll()
                         .requestMatchers(paths.matcher(HttpMethod.GET, "/api/auth/csrf")).permitAll()
                         .requestMatchers(paths.matcher(HttpMethod.POST, "/api/auth/register"),
                                 paths.matcher(HttpMethod.POST, "/api/auth/login"),
                                 paths.matcher(HttpMethod.POST, "/api/auth/logout")).permitAll()
                         .requestMatchers(memberApi).hasRole("USER")
                         .anyRequest().denyAll())
-                .addFilterAfter(new SessionTokenFilter(memberApi, accounts, cookie, errors, false), LogoutFilter.class)
+                .addFilterAfter(new SessionTokenFilter(request -> memberApi.matches(request) || playApi.matches(request), accounts, cookie, errors, false), LogoutFilter.class)
                 .build();
     }
 

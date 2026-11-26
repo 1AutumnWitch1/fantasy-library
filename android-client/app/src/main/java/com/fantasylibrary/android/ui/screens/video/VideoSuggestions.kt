@@ -18,13 +18,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fantasylibrary.android.data.network.*
 import com.fantasylibrary.android.di.AppContainer
 import com.fantasylibrary.android.ui.components.*
 import com.fantasylibrary.android.ui.theme.Parchment
 import com.fantasylibrary.android.ui.theme.WalnutDeep
-import kotlinx.coroutines.launch
+import com.fantasylibrary.android.ui.screens.detail.CollectionActions
 
 @Composable
 fun VideoSuggestions(viewModel: VideoViewModel, state: VideoViewModel.State, container: AppContainer,
@@ -39,7 +38,7 @@ fun VideoSuggestions(viewModel: VideoViewModel, state: VideoViewModel.State, con
                 state.baseUrl.isBlank() && !state.loading ->
                     PageStatus("连接图书馆后即可播放。", actionLabel = "连接设置", action = onSettings)
                 state.error != null -> PageStatus(state.error.readerMessage(), action = viewModel::reload)
-                else -> VideoInfo(container, state, onLogin)
+                else -> VideoInfo(container, state, onLogin, viewModel::refreshStats)
             }
         }
         if (state.nodes.isNotEmpty()) item {
@@ -64,7 +63,7 @@ fun VideoSuggestions(viewModel: VideoViewModel, state: VideoViewModel.State, con
 }
 
 @Composable
-private fun VideoInfo(container: AppContainer, state: VideoViewModel.State, onLogin: () -> Unit) {
+private fun VideoInfo(container: AppContainer, state: VideoViewModel.State, onLogin: () -> Unit, onFollowChanged: () -> Unit) {
     val detail = state.detail
     val work = detail?.work
     val episode = state.selectedEpisode
@@ -83,7 +82,7 @@ private fun VideoInfo(container: AppContainer, state: VideoViewModel.State, onLo
         }
         Text(work.title, color = PageInk, style = MaterialTheme.typography.headlineSmall)
         val meta = listOfNotNull(episode?.videoLabel(), work.releaseDate?.takeIf { it.isNotBlank() }?.let { "首播 $it" },
-            state.heat?.favoriteCount?.let { "$it 收藏" })
+            state.stats?.let { "${it.followers} 人追番 · ${it.plays} 次播放" })
         if (meta.isNotEmpty()) Text(meta.joinToString(" · "), color = PageMuted, style = MaterialTheme.typography.labelMedium)
         work.summary?.takeIf { it.isNotBlank() }?.let { summary ->
             var expanded by rememberSaveable(work.id) { mutableStateOf(false) }
@@ -91,56 +90,8 @@ private fun VideoInfo(container: AppContainer, state: VideoViewModel.State, onLo
                 maxLines = if (expanded) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis)
             if (summary.length > 80) PageButton(if (expanded) "收起简介" else "展开简介", { expanded = !expanded })
         }
-        VideoFavorite(container, state.baseUrl, work.id, onLogin)
+        CollectionActions(container, state.baseUrl, work.id, isAnime = true, onLogin = onLogin, onChanged = onFollowChanged)
         HorizontalDivider(color = PageLine.copy(alpha = .45f))
-    }
-}
-
-@Composable
-private fun VideoFavorite(container: AppContainer, base: String, work: Long, onLogin: () -> Unit) {
-    val session by container.authRepository.session.collectAsStateWithLifecycle()
-    val repo = container.readerRepository
-    val scope = rememberCoroutineScope()
-    var retry by remember { mutableIntStateOf(0) }
-    var entry by remember(base, work, session.signedIn) { mutableStateOf<SavedWorkDto?>(null) }
-    var ready by remember(base, work, session.signedIn) { mutableStateOf(false) }
-    var error by remember(base, work, session.signedIn) { mutableStateOf<String?>(null) }
-    var busy by remember(base, work, session.signedIn) { mutableStateOf(false) }
-    LaunchedEffect(base, work, session.signedIn, retry) {
-        if (base.isNotBlank() && session.signedIn) {
-            error = null
-            when (val result = repo.saved(base, work)) {
-                is Outcome.Ok -> { entry = result.value.item; ready = true }
-                is Outcome.Err -> error = result.failure.readerMessage()
-            }
-        }
-    }
-    val saved = entry
-    val favorite = saved?.favorite == 1
-    PageButton(if (favorite) "★ 已收藏番剧" else "☆ 收藏番剧", enabled = !busy && (ready || !session.signedIn),
-        onClick = {
-            if (!session.signedIn) onLogin()
-            else {
-                busy = true
-                error = null
-                scope.launch {
-                    try {
-                        val retain = saved != null && (saved.watchedEpisodes > 0 || saved.watchStatus != null || saved.wishlist != 0)
-                        if (favorite && !retain) when (val result = repo.remove(base, work)) {
-                            is Outcome.Ok -> entry = null
-                            is Outcome.Err -> error = result.failure.readerMessage()
-                        } else when (val result = repo.save(base, work, SaveWorkDto(!favorite, saved?.wishlist == 1,
-                            saved?.watchStatus, saved?.watchedEpisodes ?: 0))) {
-                            is Outcome.Ok -> entry = result.value
-                            is Outcome.Err -> error = result.failure.readerMessage()
-                        }
-                    } finally { busy = false }
-                }
-            }
-        })
-    error?.let { text ->
-        Text(text, color = PageMuted, style = MaterialTheme.typography.bodySmall)
-        if (!ready) PageButton("重试读取收藏", { retry++ })
     }
 }
 

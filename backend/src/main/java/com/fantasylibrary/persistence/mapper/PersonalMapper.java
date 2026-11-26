@@ -1,6 +1,5 @@
 package com.fantasylibrary.persistence.mapper;
 
-import com.fantasylibrary.account.AccountModels.SavedWork;
 import com.fantasylibrary.personal.PersonalModels.Notice;
 import com.fantasylibrary.personal.PersonalModels.WatchEvent;
 import org.apache.ibatis.annotations.*;
@@ -11,12 +10,6 @@ import java.util.List;
 public interface PersonalMapper {
     @Select("SELECT id FROM fl_account WHERE id = #{userId} AND is_deleted = 0 FOR UPDATE")
     Long lockMember(long userId);
-
-    @Insert("""
-            INSERT INTO fl_watch_history (user_id, work_id, watch_status, watched_episodes)
-            VALUES (#{userId}, #{item.workId}, #{item.watchStatus}, #{item.watchedEpisodes})
-            """)
-    void addWatchEvent(@Param("userId") long userId, @Param("item") SavedWork item);
 
     @Select("SELECT COUNT(*) FROM fl_watch_history WHERE user_id = #{userId}")
     long countHistory(long userId);

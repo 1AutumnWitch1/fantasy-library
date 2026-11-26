@@ -9,6 +9,7 @@ import com.fantasylibrary.android.data.network.ApiClient
 import com.fantasylibrary.android.data.network.Diagnostics
 import com.fantasylibrary.android.data.repository.AuthRepository
 import com.fantasylibrary.android.data.repository.ReaderRepository
+import com.fantasylibrary.android.data.repository.ViewingSync
 import com.fantasylibrary.android.data.repository.CatalogRepository
 import com.fantasylibrary.android.data.repository.DiagnosticsRepository
 import com.fantasylibrary.android.data.settings.SettingsRepository
@@ -38,6 +39,7 @@ class AppContainer(context: Context) {
     val diagnosticsRepository = DiagnosticsRepository(diagnostics)
     val authRepository = AuthRepository(apiClient, secureStore, cookieJar)
     val readerRepository = ReaderRepository(apiClient, authRepository)
+    val viewingSync = ViewingSync(context.applicationContext, readerRepository, authRepository)
 
     /** 图片统一走同一个 OkHttpClient（共享 Cookie 与连接池）。 */
     val imageLoader: ImageLoader = ImageLoader.Builder(context.applicationContext)

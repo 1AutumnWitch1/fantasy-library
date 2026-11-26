@@ -28,7 +28,8 @@ class VideoViewModel(private val container: AppContainer, initialWorkId: Long) :
         val recommendations: List<VideoRecommendation> = emptyList(),
         val recommendationsLoading: Boolean = true,
         val recommendationsError: Failure? = null,
-        val heat: HeatDto? = null,
+        val stats: PlaybackStatsDto? = null,
+        val resumePosition: Long = 0,
     ) {
         val selectedEpisode get() = nodes.getOrNull(node)?.episodes?.getOrNull(episode)
         val selectedSource get() = selectedEpisode?.sources?.getOrNull(source)
@@ -40,6 +41,7 @@ class VideoViewModel(private val container: AppContainer, initialWorkId: Long) :
     val state = _state.asStateFlow()
     private val retry = MutableStateFlow(0)
     private val retryRecommendations = MutableStateFlow(0)
+    private val statsRevision = MutableStateFlow(0)
     private val baseUrl = container.settingsRepository.settings.map { it.baseUrl }.distinctUntilChanged()
     private var feedCache: Pair<String, FeedDto>? = null
     private var studios: Pair<String, Map<Long, String>>? = null
@@ -58,22 +60,46 @@ class VideoViewModel(private val container: AppContainer, initialWorkId: Long) :
                     val detail = container.catalogRepository.workDetail(base, current.workId)
                     if (detail is Outcome.Ok) _state.update { it.copy(detail = detail.value) }
                 }
+                val saved = async {
+                    if (!container.authRepository.session.value.signedIn) container.viewingSync.localProgress(base, current.workId)
+                    else (container.viewingSync.progress(base, current.workId) as? Outcome.Ok)?.value?.latest
+                }
                 when (val result = container.catalogRepository.episodes(base, current.workId)) {
                     is Outcome.Ok -> {
                         val nodes = result.value.groupBy { it.nodeId to it.nodeLabel }.map { (key, items) ->
                             PlaybackNode(key.second?.takeIf { it.isNotBlank() } ?: "馆内线路", items.sortedBy { it.number })
                         }
-                        val node = nodes.indexOfFirst { group -> group.episodes.any { it.id == current.episodeId } }
+                        val previous = saved.await()
+                        val availableEpisodes = nodes.flatMap { it.episodes }.filter { playable(it, base) }
+                        val resume = previous?.takeIf { !it.completed }
+                        val targetEpisode = availableEpisodes.firstOrNull { it.id == current.episodeId }
+                            ?: resume?.let { progress -> availableEpisodes.firstOrNull { it.edition == "EPISODE" && it.number == progress.episodeNo } }
+                            ?: previous?.takeIf { it.completed }?.let { progress ->
+                                availableEpisodes.filter { it.edition == "EPISODE" && it.number > progress.episodeNo }.minByOrNull { it.number }
+                            }
+                            ?: availableEpisodes.firstOrNull { it.edition == "EPISODE" } ?: availableEpisodes.firstOrNull()
+                        val targetId = targetEpisode?.id
+                        val offset = resume?.takeIf { targetEpisode?.edition == "EPISODE" && targetEpisode.number == it.episodeNo }
+                            ?.positionMs ?: 0
+                        val node = nodes.indexOfFirst { group -> group.episodes.any { it.id == targetId } }
                             .takeIf { it >= 0 } ?: nodes.indexOfFirst { group -> group.episodes.any { playable(it, base) } }.coerceAtLeast(0)
                         val episodes = nodes.getOrNull(node)?.episodes.orEmpty()
-                        val episode = episodes.indexOfFirst { it.id == current.episodeId && playable(it, base) }
+                        val episode = episodes.indexOfFirst { it.id == targetId && playable(it, base) }
                             .takeIf { it >= 0 } ?: episodes.indexOfFirst { playable(it, base) }.coerceAtLeast(0)
                         val source = episodes.getOrNull(episode)?.sources?.indexOfFirst { usable(it, base) }?.coerceAtLeast(0) ?: 0
-                        _state.update { it.copy(nodes = nodes, node = node, episode = episode, source = source, loading = false) }
+                        _state.update { it.copy(nodes = nodes, node = node, episode = episode, source = source, resumePosition = offset, loading = false) }
                     }
                     is Outcome.Err -> _state.update { it.copy(error = result.failure, loading = false) }
                 }
             }
+        }
+        viewModelScope.launch {
+            combine(state.map { it.baseUrl to it.workId }.distinctUntilChanged(), statsRevision) { context, _ -> context }
+                .collectLatest { (base, work) ->
+                    if (base.isBlank() || work <= 0) return@collectLatest
+                    val result = container.readerRepository.playbackStats(base, work)
+                    if (result is Outcome.Ok) _state.update { if (it.workId == work) it.copy(stats = result.value) else it }
+                }
         }
         viewModelScope.launch {
             combine(state.map { it.baseUrl to it.workId }.distinctUntilChanged(),
@@ -142,7 +168,7 @@ class VideoViewModel(private val container: AppContainer, initialWorkId: Long) :
             if (entries.size >= 6) break
         }
         _state.update {
-            it.copy(recommendations = entries.take(6), heat = heat[currentId], recommendationsLoading = false,
+            it.copy(recommendations = entries.take(6), recommendationsLoading = false,
                 recommendationsError = if (entries.isEmpty()) lookupFailure else null)
         }
     }
@@ -161,7 +187,7 @@ class VideoViewModel(private val container: AppContainer, initialWorkId: Long) :
                     it.edition == previous?.edition && it.number == previous?.number && playable(it, state.baseUrl)
                 }
                 val episode = if (match >= 0) match else node.episodes.indexOfFirst { playable(it, state.baseUrl) }.coerceAtLeast(0)
-                state.copy(node = index, episode = episode,
+                state.copy(node = index, episode = episode, resumePosition = 0,
                     source = node.episodes.getOrNull(episode)?.sources?.indexOfFirst { usable(it, state.baseUrl) }?.coerceAtLeast(0) ?: 0)
             }
         }
@@ -169,13 +195,14 @@ class VideoViewModel(private val container: AppContainer, initialWorkId: Long) :
 
     fun selectEpisode(index: Int) {
         _state.update { state ->
-            if (state.episode == index) state else state.copy(episode = index,
+            if (state.episode == index) state else state.copy(episode = index, resumePosition = 0,
                 source = state.nodes.getOrNull(state.node)?.episodes?.getOrNull(index)?.sources
                     ?.indexOfFirst { usable(it, state.baseUrl) }?.coerceAtLeast(0) ?: 0)
         }
     }
 
     fun selectSource(index: Int) { _state.update { it.copy(source = index) } }
+    fun refreshStats() { statsRevision.update { it + 1 } }
     fun reload() { retry.update { it + 1 } }
     fun reloadRecommendations() { retryRecommendations.update { it + 1 } }
 

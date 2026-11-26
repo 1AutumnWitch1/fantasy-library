@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { episodeLabel, timeLabel, type Episode, type PlaybackSource } from '../../api/playback'
+import type { SavedEpisode } from '../../api/viewing'
 import { useLibraryVideo } from '../../player/useLibraryVideo'
 
 const props = defineProps<{
@@ -10,25 +11,182 @@ const props = defineProps<{
   source?: PlaybackSource
   poster?: string
   autoplay: boolean
+  resume?: SavedEpisode
+  qualitySources?: PlaybackSource[]
   loading: boolean
   catalogError?: string
   alternate: boolean
   previous?: boolean
   next?: boolean
 }>()
-const emit = defineEmits<{ ended: []; alternate: []; previous: []; next: []; retryCatalog: [] }>()
+const emit = defineEmits<{ ended: []; alternate: []; previous: []; next: []; retryCatalog: []; counted: []; back: []; quality: [PlaybackSource] }>()
 const {
-  video, session, duration, time, playing, muted, volume, speed, state, ready,
-  metadata, seek, progress, toggle, resumed, pause, buffer, error, ended, retry, setVolume, toggleMute, setSpeed,
-} = useLibraryVideo(props, () => emit('ended'))
+  video, session, duration, buffered, time, playing, muted, volume, speed, state, ready,
+  metadata, seek, progress, bufferProgress, toggle, resumed, pause, buffer, error, ended, retry, setVolume, toggleMute, setSpeed,
+} = useLibraryVideo(props, () => emit('ended'), () => emit('counted'))
 const room = ref<HTMLElement | null>(null)
 const controlError = ref('')
-const supportsPip = computed(() => !!video.value && document.pictureInPictureEnabled &&
-  typeof video.value.requestPictureInPicture === 'function')
-const percent = computed(() => duration.value > 0 ? (time.value / duration.value) * 100 : 0)
+interface WebKitVideo extends HTMLVideoElement {
+  webkitPresentationMode?: 'inline' | 'picture-in-picture'
+  webkitSupportsPresentationMode?: (mode: 'picture-in-picture') => boolean
+  webkitSetPresentationMode?: (mode: 'inline' | 'picture-in-picture') => void
+}
+
+const inPip = ref(false)
+const supportsPip = computed(() => {
+  const media: WebKitVideo | null = video.value
+  if (!media || !ready.value) return false
+  return (document.pictureInPictureEnabled && typeof media.requestPictureInPicture === 'function')
+    || Boolean(media.webkitSetPresentationMode && media.webkitSupportsPresentationMode?.('picture-in-picture'))
+})
+const shown = ref(true)
+const inFullscreen = ref(false)
+const menuFocused = ref(false)
+const brightness = ref(1)
+const sliderPreview = ref<number | null>(null)
+const hud = ref('')
+const quality = computed(() => [...new Map((props.qualitySources ?? []).filter(item => item.quality)
+  .map(item => [item.quality, item])).values()])
+const displayTime = computed(() => sliderPreview.value ?? time.value)
+const percent = computed(() => duration.value > 0 ? (displayTime.value / duration.value) * 100 : 0)
+let controlsTimer = 0
+let hudTimer = 0
+let singleTap = 0
+let lastTapAt = -1_000
+let lastTapSide = ''
+let gesture: {
+  id: number; x: number; y: number; width: number; height: number;
+  at: number; brightness: number; volume: number; region: 'left' | 'middle' | 'right'; rightSide: boolean;
+  axis?: 'seek' | 'brightness' | 'volume'
+} | null = null
+
+function reveal() {
+  shown.value = true
+  window.clearTimeout(controlsTimer)
+  if (playing.value && state.value === 'ready' && !gesture?.axis && sliderPreview.value === null && !menuFocused.value) {
+    controlsTimer = window.setTimeout(() => { shown.value = false }, 3000)
+  }
+}
+
+watch([playing, state, menuFocused, () => session.value?.key], reveal)
+
+function syncFullscreen() {
+  inFullscreen.value = document.fullscreenElement === room.value && room.value !== null
+  if (!inFullscreen.value) screen.orientation?.unlock?.()
+  reveal()
+}
+
+function back() {
+  if (inFullscreen.value) void fullscreen()
+  else emit('back')
+}
+
+onMounted(() => document.addEventListener('fullscreenchange', syncFullscreen))
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', syncFullscreen)
+  window.clearTimeout(controlsTimer)
+  window.clearTimeout(hudTimer)
+  window.clearTimeout(singleTap)
+})
+
+function feedback(message: string) {
+  window.clearTimeout(hudTimer)
+  hud.value = message
+  if (!gesture?.axis && sliderPreview.value === null) {
+    hudTimer = window.setTimeout(() => { hud.value = '' }, 900)
+  }
+}
+
+function beginDrag(event: PointerEvent) {
+  if (!session.value || event.button !== 0 || !event.isPrimary) return
+  const surface = event.currentTarget as HTMLElement
+  const rect = surface.getBoundingClientRect()
+  const x = event.clientX - rect.left
+  const region = x < rect.width / 3 ? 'left' : x > rect.width * 2 / 3 ? 'right' : 'middle'
+  gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, width: rect.width, height: rect.height,
+    at: time.value, brightness: brightness.value, volume: muted.value ? 0 : volume.value, region, rightSide: x >= rect.width / 2 }
+  surface.setPointerCapture(event.pointerId)
+}
+
+function moveDrag(event: PointerEvent) {
+  const start = gesture
+  if (!start) {
+    if (event.pointerType === 'mouse') reveal()
+    return
+  }
+  if (start.id !== event.pointerId) return
+  const dx = event.clientX - start.x
+  const dy = event.clientY - start.y
+  if (!start.axis && Math.hypot(dx, dy) < 9) return
+  start.axis ??= Math.abs(dx) >= Math.abs(dy) ? 'seek' : start.rightSide ? 'volume' : 'brightness'
+  reveal()
+  if (start.axis === 'seek' && ready.value) {
+    const preview = Math.max(0, Math.min(duration.value, start.at + dx / start.width * Math.min(120, duration.value)))
+    sliderPreview.value = preview
+    const difference = Math.round(preview - start.at)
+    feedback((difference < 0 ? '快退 ' : '快进 ') + Math.abs(difference) + ' 秒 · ' + timeLabel(preview))
+  } else if (start.axis === 'brightness') {
+    brightness.value = Math.max(.06, Math.min(1.4, start.brightness - dy / start.height))
+    feedback('☀ 亮度 ' + Math.round(brightness.value * 100) + '%')
+  } else if (start.axis === 'volume') {
+    setVolume(Math.max(0, Math.min(1, start.volume - dy / start.height)))
+    feedback('♪ 音量 ' + Math.round(volume.value * 100) + '%')
+  }
+}
+
+function endDrag(event: PointerEvent) {
+  const start = gesture
+  if (!start || start.id !== event.pointerId) return
+  gesture = null
+  if (start.axis) {
+    if (event.type === 'pointerup' && start.axis === 'seek' && sliderPreview.value !== null) seek(sliderPreview.value)
+    sliderPreview.value = null
+    feedback(hud.value)
+    reveal()
+  } else if (event.type === 'pointerup') {
+    const now = performance.now()
+    if (now - lastTapAt <= 300 && lastTapSide === start.region) {
+      window.clearTimeout(singleTap)
+      lastTapAt = -1_000
+      if (start.region === 'middle') {
+        togglePlayback()
+        feedback(playing.value ? '暂停或继续' : '继续播放')
+      } else {
+        seek(time.value + (start.region === 'left' ? -10 : 10))
+        feedback(start.region === 'left' ? '快退 10 秒' : '快进 10 秒')
+      }
+    } else {
+      window.clearTimeout(singleTap)
+      lastTapAt = now
+      lastTapSide = start.region
+      singleTap = window.setTimeout(reveal, 300)
+    }
+  }
+}
+
+function sliderInput(event: Event) {
+  sliderPreview.value = Number((event.target as HTMLInputElement).value)
+  reveal()
+  feedback(timeLabel(sliderPreview.value))
+}
+
+function sliderCommit(event: Event) {
+  seek(Number((event.target as HTMLInputElement).value))
+  sliderPreview.value = null
+  feedback(hud.value)
+  reveal()
+}
+
+function qualityChange(event: Event) {
+  const id = Number((event.target as HTMLSelectElement).value)
+  const source = quality.value.find(option => option.id === id)
+  if (source) emit('quality', source)
+  reveal()
+}
 
 function togglePlayback() {
   controlError.value = ''
+  reveal()
   toggle()
 }
 
@@ -36,7 +194,11 @@ async function fullscreen() {
   controlError.value = ''
   try {
     if (document.fullscreenElement) await document.exitFullscreen()
-    else if (room.value?.requestFullscreen) await room.value.requestFullscreen()
+    else if (room.value?.requestFullscreen) {
+      await room.value.requestFullscreen()
+      const orientation = screen.orientation as ScreenOrientation & { lock?: (mode: 'landscape') => Promise<void> }
+      if (matchMedia('(pointer: coarse)').matches) void orientation.lock?.('landscape').catch(() => undefined)
+    }
     else {
       const media = video.value as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null
       if (!media?.webkitEnterFullscreen) throw new Error('Fullscreen unavailable')
@@ -47,13 +209,21 @@ async function fullscreen() {
   }
 }
 
+function syncPip() {
+  const media: WebKitVideo | null = video.value
+  inPip.value = Boolean(media && (document.pictureInPictureElement === media || media.webkitPresentationMode === 'picture-in-picture'))
+}
+
 async function miniWindow() {
   controlError.value = ''
+  const media: WebKitVideo | null = video.value
+  if (!media) return
   try {
     if (document.pictureInPictureElement) await document.exitPictureInPicture()
-    else await video.value?.requestPictureInPicture()
+    else if (document.pictureInPictureEnabled && typeof media.requestPictureInPicture === 'function') await media.requestPictureInPicture()
+    else media.webkitSetPresentationMode?.(inPip.value ? 'inline' : 'picture-in-picture')
   } catch {
-    controlError.value = '当前视频无法进入小窗。'
+    controlError.value = '当前视频无法切换小窗。'
   }
 }
 
@@ -65,21 +235,25 @@ function keyboard(event: KeyboardEvent) {
   else if (event.key === 'ArrowRight') seek(time.value + 5)
   else if (event.key.toLowerCase() === 'f') void fullscreen()
   else return
+  reveal()
   event.preventDefault()
 }
 </script>
 
 <template>
-  <section ref="room" class="film-player" aria-label="馆藏播放器" tabindex="0" @keydown="keyboard">
+  <section ref="room" class="film-player" aria-label="馆藏播放器" tabindex="0" @keydown="keyboard" @focusin="reveal">
     <div class="film-screen">
       <img v-if="poster && (!session || (!playing && time < 0.1))" class="screen-art"
         :src="poster" alt="" decoding="async">
       <video v-if="session" :key="session.key" ref="video" :data-session="session.key"
         :src="session.url" :aria-label="title + (episode ? ' · ' + episodeLabel(episode) : '')"
-        preload="metadata" playsinline
-        @loadedmetadata="metadata" @timeupdate="progress" @play="resumed"
+        preload="metadata" playsinline :style="{ filter: 'brightness(' + brightness + ')' }"
+        @loadedmetadata="metadata" @timeupdate="progress" @progress="bufferProgress"
         @playing="resumed" @pause="pause" @waiting="buffer" @ended="ended" @error="error"
-        @click="togglePlayback" />
+        @enterpictureinpicture="syncPip" @leavepictureinpicture="syncPip" @webkitpresentationmodechanged="syncPip"
+        />
+      <div v-if="session" class="film-gestures" @pointerenter="reveal" @pointerdown="beginDrag" @pointermove="moveDrag"
+        @pointerup="endDrag" @pointercancel="endDrag"></div>
       <div v-if="loading || catalogError || !session || state === 'failed'" class="film-overlay film-message">
         <template v-if="loading"><p role="status">正在调阅放映目录…</p></template>
         <template v-else-if="catalogError">
@@ -100,16 +274,25 @@ function keyboard(event: KeyboardEvent) {
         <span>{{ time > 0 ? '继续播放' : '点击播放' }}</span>
       </div>
       <p v-else-if="state === 'buffering'" class="film-buffer" role="status">正在缓冲…</p>
-      <span v-if="episode?.edition === 'PREVIEW' && session" class="preview-label">馆藏演示</span>
-    </div>
+      <div v-if="shown" class="film-top">
+        <button type="button" @click="back">{{ inFullscreen ? '‹ 退出全屏' : '‹ 返回' }}</button>
+        <span>{{ episode ? episodeLabel(episode) : title }}</span>
+        <small v-if="episode?.edition === 'PREVIEW' && session">馆藏预告</small>
+      </div>
+      <output v-if="hud" class="film-hud">{{ hud }}</output>
 
-    <div class="film-controls">
+    <div v-if="shown" class="film-controls" @pointerdown="reveal" @pointermove="reveal">
       <label class="film-seek">
         <span class="sr-only">播放进度</span>
+        <span class="film-track" aria-hidden="true">
+          <span v-for="range in buffered" :key="range.start" class="film-buffered"
+            :style="{ left: range.start + '%', width: (range.end - range.start) + '%' }"></span>
+          <span class="film-played" :style="{ width: percent + '%' }"></span>
+        </span>
         <input type="range" aria-label="播放进度" min="0" :max="duration || 1" step="0.1"
-          :value="time" :disabled="!ready" :style="{ '--progress': percent + '%' }"
-          :aria-valuetext="timeLabel(time) + ' / ' + timeLabel(duration)"
-          @input="seek(Number(($event.target as HTMLInputElement).value))">
+          :value="displayTime" :disabled="!ready"
+          :aria-valuetext="timeLabel(displayTime) + ' / ' + timeLabel(duration)"
+          @input="sliderInput" @change="sliderCommit">
       </label>
       <div class="film-control-row">
         <div class="film-transport">
@@ -117,21 +300,25 @@ function keyboard(event: KeyboardEvent) {
             @click="togglePlayback"><span aria-hidden="true">{{ playing ? 'Ⅱ' : '▶' }}</span></button>
           <button v-if="previous" type="button" aria-label="上一段" @click="emit('previous')">‹</button>
           <button v-if="next" type="button" aria-label="下一段" @click="emit('next')">›</button>
-          <output class="film-time">{{ timeLabel(time) }} <span>/</span> {{ timeLabel(duration || episode?.durationSeconds || 0) }}</output>
+          <output class="film-time">{{ timeLabel(displayTime) }} <span>/</span> {{ timeLabel(duration || episode?.durationSeconds || 0) }}</output>
         </div>
         <div class="film-adjust">
           <button type="button" :aria-label="muted ? '取消静音' : '静音'" :aria-pressed="muted" :disabled="!session"
             @click="toggleMute">{{ muted ? '静音' : '音量' }}</button>
           <input class="film-volume" type="range" aria-label="音量大小" min="0" max="1" step=".05" :disabled="!session"
             :value="muted ? 0 : volume" @input="setVolume(Number(($event.target as HTMLInputElement).value))">
-          <select aria-label="播放倍速" :value="speed" :disabled="!session" @change="setSpeed(Number(($event.target as HTMLSelectElement).value))">
+          <select aria-label="播放倍速" :value="speed" :disabled="!session" @focus="menuFocused = true" @blur="menuFocused = false" @change="setSpeed(Number(($event.target as HTMLSelectElement).value))">
             <option v-for="rate in [0.75, 1, 1.25, 1.5, 2]" :key="rate" :value="rate">{{ rate }}×</option>
           </select>
-          <button v-if="supportsPip" type="button" class="film-pip" :disabled="!ready" @click="miniWindow">小窗</button>
-          <button type="button" :disabled="!session" @click="fullscreen">全屏</button>
+          <select v-if="quality.length > 1" aria-label="清晰度" :value="source?.id" @focus="menuFocused = true" @blur="menuFocused = false" @change="qualityChange">
+            <option v-for="item of quality" :key="item.id" :value="item.id">{{ item.quality }}</option>
+          </select>
+          <button v-if="supportsPip" type="button" class="film-pip" :aria-pressed="inPip" @click="miniWindow">{{ inPip ? '关闭小窗' : '小窗' }}</button>
+          <button type="button" :disabled="!session" @click="fullscreen">{{ inFullscreen ? '退出全屏' : '全屏' }}</button>
         </div>
       </div>
       <p v-if="controlError" class="film-control-error" role="status">{{ controlError }}</p>
+    </div>
     </div>
   </section>
 </template>
@@ -140,7 +327,7 @@ function keyboard(event: KeyboardEvent) {
 .film-player {
   overflow: hidden;
   position: relative;
-  border-radius: .5rem;
+  border-radius: .36rem;
   outline-offset: 3px;
   border: 1px solid #ac855b;
   background: #131716;
@@ -170,10 +357,10 @@ video { object-fit: contain; cursor: pointer; }
 .film-message { background: #10171599; padding: .7rem; }
 .film-message p { margin: 0; color:#f7e4be; font-size: clamp(.93rem,2vw,1.22rem); }
 .film-play {
-  display:grid; place-items:center; width:clamp(3.1rem,7.7vw,5.75rem); aspect-ratio:1;
+  display:grid; place-items:center; width:clamp(2.85rem,5vw,4rem); aspect-ratio:1;
   border-radius:50%; border:1px solid #f9d393; background: #172d25d9;
   box-shadow:0 0 0 4px #202f29b5, 0 .5rem 1.5rem #0b100fe8;
-  color:#ffe4ac; font-size:clamp(1.2rem,3vw,2rem); cursor:pointer; pointer-events:auto;
+  color:#ffe4ac; font-size:clamp(1.13rem,2vw,1.45rem); cursor:pointer; pointer-events:auto;
 }
 .film-play span { margin-left:.12em; }
 .film-play:hover { background:#324e3f; }
@@ -184,18 +371,41 @@ video { object-fit: contain; cursor: pointer; }
   border:1px solid #c79e6a90; background:#182721ed; color:#ebd2a1; font-size:.75rem; pointer-events:none;
 }
 .film-buffer {
-  position:absolute; inset:auto auto .6rem; margin:0; padding:.2rem .6rem; color:#f6dfae; background:#1d1e14cc;
+  position:absolute; z-index:2; margin:0; padding:.2rem .6rem; color:#f6dfae; background:#1d1e14cc;
 }
+.film-gestures { position: absolute; inset: 0; z-index: 1; touch-action: none; cursor: pointer; }
+.film-top {
+  position: absolute; inset: 0 0 auto; z-index: 3; display: flex; align-items: center; gap: .5rem;
+  padding: .2rem .45rem; color: #f3daaa; background: linear-gradient(#130e09e8, transparent);
+  pointer-events: none;
+}
+.film-top span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.film-top button { color: inherit; background: #1c241dd1; border: 0; min-height: 2.5rem; padding: .3rem .55rem; pointer-events: auto; cursor: pointer; }
+.film-hud { position: absolute; z-index: 4; padding: .65rem 1rem; border-radius: .35rem; color: #f9e6bc; background: #17120ddd; pointer-events: none; }
 .film-controls {
-  color: #f3daaa; padding: .17rem clamp(.45rem,1.2vw,.95rem) .44rem;
-  border-top: 1px solid #b38b5d91; background: linear-gradient(#232b24,#1a211d);
+  position: absolute; inset: auto 0 0; z-index: 3;
+  color: #f3daaa; padding: .17rem clamp(.45rem,1.2vw,.95rem) .28rem;
+  background: linear-gradient(transparent, #120d09ed 45%);
 }
-.film-seek { display:block; }
+.film-seek { position: relative; display: block; }
+.film-track {
+  position: absolute;
+  inset: 50% .38rem auto;
+  height: .25rem;
+  translate: 0 -50%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f2e3c35e;
+  pointer-events: none;
+}
+.film-buffered, .film-played { position: absolute; inset: 0 auto 0 0; }
+.film-buffered { background: #f2e3c370; }
+.film-played { background: #ddb16b; }
 .film-seek input {
-  width:100%; height:1.55rem; margin:0; appearance:none; background:transparent; cursor:pointer;
-  &::-webkit-slider-runnable-track { height:.25rem; background:linear-gradient(to right,#d5ab6d var(--progress),#72674b var(--progress)); border-radius:3px; }
-  &::-moz-range-track { height:.25rem; background:#72674b; border-radius:3px; }
-  &::-moz-range-progress { background:#d5ab6d; height:.25rem; }
+  position: relative; width:100%; height:1.55rem; margin:0; appearance:none; background:transparent; cursor:pointer;
+  &::-webkit-slider-runnable-track { height:.25rem; background:transparent; border-radius:3px; }
+  &::-moz-range-track { height:.25rem; background:transparent; border-radius:3px; }
+  &::-moz-range-progress { background:transparent; height:.25rem; }
   &::-webkit-slider-thumb { appearance:none; width:.77rem; height:.77rem; margin-top:-.26rem; border-radius:50%; background:#f1cb8a; }
   &::-moz-range-thumb { width:.73rem; height:.73rem; border:0; border-radius:50%; background:#f1cb8a; }
 }
@@ -215,12 +425,12 @@ video { object-fit: contain; cursor: pointer; }
 .film-control-error { margin:.2rem 0 0; font-size:.82rem; color:#ffbf9f; }
 .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .film-player:fullscreen {
-  display:grid; grid-template-rows:minmax(0,1fr) auto; border:0; border-radius:0;
-  .film-screen { aspect-ratio:auto; }
+  border:0; border-radius:0; background:#050505;
+  .film-screen { height:100%; aspect-ratio:auto; background:#050505; }
 }
 @media (max-width: 34rem) {
   .film-volume { display:none; }
-  .film-pip { display:none; }
+  .film-transport button[aria-label='上一段'], .film-transport button[aria-label='下一段'] { display:none; }
   .film-time { font-size:.76rem; }
   .film-control-row button, select { font-size:.78rem; min-width:1.92rem; padding-inline:.37rem; }
 }

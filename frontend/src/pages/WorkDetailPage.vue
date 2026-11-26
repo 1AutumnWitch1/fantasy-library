@@ -7,12 +7,20 @@ import WorkCollectionPanel from '../components/reader/WorkCollectionPanel.vue'
 import BookSigil from '../components/shelf/BookSigil.vue'
 import { communityLink } from '../api/community'
 import { airingLabels } from '../api/catalog'
-import { groupPlayback, type Episode } from '../api/playback'
+import { useAccountStore } from '../stores/account'
+import { useViewingProgress } from '../player/useViewingProgress'
+import { groupPlayback, timeLabel, type Episode } from '../api/playback'
 import { useWorkScreen } from '../player/useWorkScreen'
 
 const route = useRoute()
 const router = useRouter()
 const { detail, episodes, checkingEpisodes, error, playbackError, retry } = useWorkScreen(() => route.params.id, true)
+const account = useAccountStore()
+const viewing = useViewingProgress(() => detail.value?.anime ? detail.value.work.id : undefined)
+const { stats, progress, checking, error: progressError } = viewing
+const latest = computed(() => progress.value?.latest)
+const resume = computed(() => !latest.value?.completed && episodes.value.some(item =>
+  item.edition === 'EPISODE' && item.number === latest.value?.episodeNo && item.sources.length > 0))
 const coverFailed = ref(false)
 const bannerFailed = ref(false)
 const returnLabels = { personal: '返回私人书架', recommendations: '返回推荐书', games: '返回游戏书', anime: '返回追番书' }
@@ -76,13 +84,16 @@ function returnToBook() {
                 <span v-if="detail.game?.platforms.length">{{ detail.game.platforms.map(item => item.name).join(' · ') }}</span>
                 <time v-if="detail.work.releaseDate" :datetime="detail.work.releaseDate">{{ detail.work.releaseDate }}</time>
               </p>
-              <p class="hero-summary">{{ detail.work.summary }}</p>
+              <details v-if="detail.work.summary" class="dossier-summary">
+                <summary>作品简介</summary><p>{{ detail.work.summary }}</p>
+              </details>
+              <p v-if="stats" class="title-details">{{ stats.followers }} 人追番 · {{ stats.plays }} 次播放</p>
+              <WorkCollectionPanel :key="detail.work.id" :detail="detail" @changed="viewing.refreshStats" />
               <div class="dossier-actions">
-                <RouterLink v-if="detail.anime" class="watch-link" :to="watchLink(playable[0]?.id)">
-                  <span aria-hidden="true">▶</span> 开始观看
+                <RouterLink v-if="detail.anime" class="watch-link" :to="watchLink()">
+                  <span aria-hidden="true">▶</span> {{ resume ? '继续观看' : latest ? '观看分集' : '开始观看' }}
                 </RouterLink>
                 <GameDownloadActions v-else-if="detail.game" :key="detail.work.id" :work-id="detail.work.id" />
-                <a href="#work-collection">私人书架</a>
                 <RouterLink v-if="detail.anime" :to="{ ...watchLink(), hash: '#screening-discussion' }">番剧评论 ›</RouterLink>
                 <RouterLink v-else :to="communityLink(detail.work.id)">作品讨论 ›</RouterLink>
               </div>
@@ -96,7 +107,7 @@ function returnToBook() {
         <EpisodePicker v-if="lines.length" class="work-playback" :lines="lines"
           :active-line-id="selectedLine?.id" :busy="checkingEpisodes" @line="lineId = $event" @episode="playEpisode" />
 
-        <div class="dossier-papers">
+        <div class="dossier-papers" :class="{ 'dossier-papers--single': !detail.anime }">
           <section class="record-paper" aria-labelledby="work-archive">
             <h2 id="work-archive">作品档案</h2>
             <ul v-if="detail.tags.length" class="record-tags" aria-label="作品标签">
@@ -116,9 +127,21 @@ function returnToBook() {
               </template>
             </dl>
           </section>
-          <div id="work-collection" class="record-paper record-collection">
-            <WorkCollectionPanel :key="detail.work.id" :detail="detail" />
-          </div>
+          <section v-if="detail.anime" class="record-paper record-collection">
+            <h2>我的观看记录</h2>
+            <p v-if="checking" role="status">正在读取观看记录…</p>
+            <p v-else-if="!account.profile">登录后可在设备间同步观看记录。</p>
+            <p v-else-if="progressError" role="alert">暂时无法读取观看记录。<button type="button" @click="viewing.retry">重试</button></p>
+            <p v-else-if="!latest">尚未观看</p>
+            <template v-else>
+              <p>已看 {{ progress?.completedEpisodes }} 集
+                <template v-if="detail.anime.episodeCount && (progress?.completedEpisodes ?? 0) >= detail.anime.episodeCount"> · 已看完</template>
+                <template v-else-if="!latest.completed"> · 正在观看第 {{ latest.episodeNo }} 集</template>
+              </p>
+              <p>最近观看 · 第 {{ latest.episodeNo }} 集 · {{ timeLabel(latest.positionMs / 1000) }}</p>
+              <time :datetime="latest.updatedAt">{{ new Date(latest.updatedAt).toLocaleString('zh-CN') }}</time>
+            </template>
+          </section>
         </div>
 
         <section v-if="gallery.length" class="dossier-gallery" aria-labelledby="work-gallery">
@@ -142,3 +165,10 @@ function returnToBook() {
 </template>
 
 <style scoped lang="scss" src="../styles/work-dossier.scss"></style>
+<style scoped>
+.dossier-summary { margin: .75rem 0; color: #f2ddbc; }
+.dossier-summary summary { cursor: pointer; }
+.dossier-summary p { margin: .5rem 0; white-space: pre-line; }
+.dossier-actions { margin-top: .65rem; }
+.dossier-papers--single { grid-template-columns: 1fr; }
+</style>

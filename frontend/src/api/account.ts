@@ -27,7 +27,7 @@ export interface SavedWork {
 }
 
 interface Response<T> { code: string; data: T }
-async function request<T>(config: AxiosRequestConfig) {
+export async function request<T>(config: AxiosRequestConfig) {
   const { data } = await apiClient.request<Response<T>>(config)
   if (data.code !== 'OK') throw new Error('请求未完成')
   return data.data
@@ -58,6 +58,9 @@ export const removeAvatar = () => write<Profile>('DELETE', '/me/avatar')
 export const listSaved = (signal: AbortSignal) => request<SavedWork[]>({ url: '/me/collection', signal })
 export const getSaved = (id: number, signal: AbortSignal) =>
   request<{ item: SavedWork | null }>({ url: '/me/collection/' + id, signal })
+export type CollectionSelection = 'FOLLOW' | 'FAVORITE' | 'WISHLIST'
+export const selectWork = (id: number, kind: CollectionSelection, selected: boolean) =>
+  write<{ item: SavedWork | null }>('PUT', '/me/collection/' + id + '/selection/' + kind, { selected })
 export const saveWork = (id: number, data: SaveWork) => write<SavedWork>('PUT', '/me/collection/' + id, data)
 export const removeSaved = (id: number) => write<void>('DELETE', '/me/collection/' + id)
 export const needsLogin = (error: unknown) => isAxiosError(error) && error.response?.data?.code === 'LOGIN_REQUIRED'

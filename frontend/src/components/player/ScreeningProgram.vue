@@ -8,6 +8,7 @@ defineProps<{
   source?: PlaybackSource
   autoNext: boolean
   busy: boolean
+  completedEpisode?: number
 }>()
 const emit = defineEmits<{ line: [id: number]; episode: [value: Episode]; source: [value: PlaybackSource]; autoNext: [value: boolean] }>()
 </script>
@@ -15,7 +16,7 @@ const emit = defineEmits<{ line: [id: number]; episode: [value: Episode]; source
 <template>
   <div class="program-sheet">
     <EpisodePicker id="screening-nodes" :lines="lines" :active-line-id="episode?.nodeId"
-      :active-episode-id="episode?.id" :busy="busy" @line="emit('line', $event)" @episode="emit('episode', $event)" />
+      compact :active-episode-id="episode?.id" :completed-episode="completedEpisode" :busy="busy" @line="emit('line', $event)" @episode="emit('episode', $event)" />
     <label v-if="(lines.find(line => line.id === episode?.nodeId)?.episodes.length ?? 0) > 1" class="autonext">
       <input type="checkbox" :checked="autoNext" @change="emit('autoNext', ($event.target as HTMLInputElement).checked)">
       自动播放下一段
@@ -35,14 +36,13 @@ const emit = defineEmits<{ line: [id: number]; episode: [value: Episode]; source
 
 <style scoped lang="scss">
 .program-sheet {
-  margin:.7rem 0;
-  color:var(--foil); color-scheme:light;
+  color:var(--paper-ink); color-scheme:light;
 }
 .autonext { display:flex; align-items:center; gap:.34rem; min-height:2.65rem; font-size:.86rem; }
 input { accent-color:#395346; }
 .program-nodes { min-width:0; padding:.5rem; margin:.5rem 0 0; color:var(--paper-ink); background:var(--paper-base);
   border:1px solid var(--brass-frame); border-radius:.28rem; }
-.program-nodes legend { padding:0 .34rem; color:var(--foil); background:var(--wood-shadow); border-radius:.18rem; }
+.program-nodes legend { padding:0 .34rem; color:var(--paper-muted); font-size:.85rem; }
 .node-list { display:grid; gap:.33rem; }
 .node-option {
   display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:.53rem; align-items:center;

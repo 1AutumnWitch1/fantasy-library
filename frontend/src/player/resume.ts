@@ -1,3 +1,10 @@
+import type { Episode } from '../api/playback'
+import type { SavedEpisode } from '../api/viewing'
+
+type EpisodeIdentity = Pick<Episode, 'id' | 'edition' | 'number'>
+const episodeKey = (workId: number, episode: EpisodeIdentity) =>
+  'fantasy-library.resume.' + workId + '.' + episode.edition + '.' + episode.number
+
 const keyFor = (workId: number, episodeId: number) => 'fantasy-library.playback.' + workId + '.' + episodeId
 
 export function readPosition(workId: number, episodeId: number) {
@@ -16,6 +23,30 @@ export function savePosition(workId: number, episodeId: number, position: number
   } catch {
     // The video still plays when browser storage is unavailable.
   }
+}
+
+export function readEpisodePosition(workId: number, episode: EpisodeIdentity, saved?: SavedEpisode) {
+  try {
+    const value = localStorage.getItem(episodeKey(workId, episode))
+    if (value) {
+      const local = JSON.parse(value) as { position: number; updatedAt: number }
+      if (Number.isFinite(local.position) && (!saved || local.updatedAt >= Date.parse(saved.updatedAt))) {
+        return Math.max(0, local.position)
+      }
+    }
+  } catch {
+    // A blocked or outdated storage entry can still fall back to the server.
+  }
+  return saved ? (saved.completed ? 0 : saved.positionMs / 1000) : readPosition(workId, episode.id)
+}
+
+export function saveEpisodePosition(workId: number, episode: EpisodeIdentity, position: number) {
+  try {
+    localStorage.setItem(episodeKey(workId, episode), JSON.stringify({ position, updatedAt: Date.now() }))
+  } catch {
+    // Browser storage is optional.
+  }
+  savePosition(workId, episode.id, position)
 }
 
 export function restorePosition(seconds: number, duration: number, sameEpisode: boolean) {

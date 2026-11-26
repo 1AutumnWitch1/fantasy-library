@@ -89,6 +89,7 @@ async function submit(target?: ScreeningComment) {
     <section id="screening-discussion" class="forum-sheet screening-thread" aria-labelledby="screening-discussion-title">
       <header class="discussion-heading">
         <h2 id="screening-discussion-title">番剧评论 <small v-if="result">{{ result.total }} 条</small></h2>
+        <span v-if="result" class="discussion-order">最新</span>
       </header>
       <div v-if="account.profile" class="comment-intake">
         <AuthorAvatar :avatar-key="account.profile.avatarKey" />
@@ -133,14 +134,22 @@ async function submit(target?: ScreeningComment) {
 </template>
 
 <style scoped lang="scss">
-.screening-thread { scroll-margin-top:calc(var(--library-header-height) + 1rem); }
-.discussion-heading { padding-bottom:.5rem; border-bottom:1px solid var(--forum-line); }
+.screening-thread {
+  scroll-margin-top: calc(var(--library-header-height) + 1rem);
+  margin: 0;
+  padding: clamp(.8rem, 1.8vw, 1.38rem);
+  border-radius: 0 0 .34rem .34rem;
+}
+.discussion-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .4rem 1rem; padding-bottom: .52rem; border-bottom: 1px solid var(--forum-line); }
+.discussion-heading h2 { margin: 0; font: 700 1.23rem/1.3 var(--display-font); }
+.discussion-order { padding-inline-start: .8rem; border-inline-start: 1px solid var(--forum-line); color: var(--paper-muted); font-size: .84rem; }
 .discussion-heading small { margin-inline-start:.25rem; font:400 .9rem var(--reading-font); color:var(--paper-muted); }
 .comment-intake { display:flex; align-items:start; gap:.7rem; padding:.85rem 0; margin:0; }
 .comment-intake .forum-form { position:relative; flex:1; min-width:0; margin:0; grid-template-columns:minmax(0,1fr) auto; align-items:end; }
 .sr-comment-label { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .screening-roots { list-style:none; margin:0; padding:0; }
-.comment-thread { padding:.75rem 0; border-top:1px solid var(--forum-line); }
+.comment-thread { padding: .72rem 0; }
+.comment-thread + .comment-thread { border-top: 1px solid var(--forum-line); }
 .reply-form { margin-inline-start:2.65rem; }
 @media (max-width:34rem) {
   .comment-intake .forum-form { grid-template-columns:1fr; gap:.5rem; }

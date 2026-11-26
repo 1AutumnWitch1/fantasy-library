@@ -27,7 +27,8 @@ BEGIN
         'FL_GP_PLATFORM_IX', 'FL_ACCOUNT', 'FL_LOGIN_TOKEN', 'FL_SAVED_WORK', 'FL_FORUM_POST', 'FL_FORUM_COMMENT',
         'FL_FORUM_IMAGE', 'FL_FORUM_LIKE', 'FL_FORUM_REPORT', 'FL_FORUM_POST_SEQ', 'FL_FORUM_COMMENT_SEQ',
         'FL_WATCH_HISTORY', 'FL_INBOX_NOTICE', 'FL_EPISODE', 'FL_EPISODE_SOURCE', 'FL_GAME_DOWNLOAD', 'FL_COMMUNITY_SETTING',
-        'FL_PLAYBACK_NODE', 'FL_RESOURCE_REFERENCE_GUARD', 'FL_RESOURCE_RETIREMENT'
+        'FL_PLAYBACK_NODE', 'FL_RESOURCE_REFERENCE_GUARD', 'FL_RESOURCE_RETIREMENT',
+        'FL_EPISODE_PROGRESS', 'FL_PLAY_SESSION', 'FL_PLAY_TOTAL'
     );
     IF existing_objects > 0 THEN
         RAISE_APPLICATION_ERROR(-20001, 'Catalog objects already exist. Inspect the schema before applying DDL.');
@@ -53,4 +54,5 @@ END;
 @@16_work_retirement.sql
 @@17_screening_comments.sql
 @@18_screening_discussions.sql
+@@19_viewing_progress.sql
 EXIT SUCCESS

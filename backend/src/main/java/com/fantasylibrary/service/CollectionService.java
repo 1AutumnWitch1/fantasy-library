@@ -9,6 +9,7 @@ import com.fantasylibrary.catalog.model.Catalog.WorkType;
 import com.fantasylibrary.catalog.model.CatalogProblem;
 import com.fantasylibrary.persistence.mapper.CatalogMapper;
 import com.fantasylibrary.persistence.mapper.CollectionMapper;
+import com.fantasylibrary.persistence.mapper.ViewingMapper;
 import org.springframework.beans.factory.ObjectProvider;
 import com.fantasylibrary.persistence.mapper.PersonalMapper;
 import org.springframework.http.HttpStatus;
@@ -23,13 +24,16 @@ public class CollectionService {
     private final ObjectProvider<CatalogMapper> catalogues;
 
     private final ObjectProvider<PersonalMapper> personal;
+    private final ObjectProvider<ViewingMapper> viewing;
     private final ObjectProvider<TransactionTemplate> transactions;
 
     public CollectionService(ObjectProvider<CollectionMapper> collections, ObjectProvider<CatalogMapper> catalogues,
-                             ObjectProvider<PersonalMapper> personal, ObjectProvider<TransactionTemplate> transactions) {
+                             ObjectProvider<PersonalMapper> personal, ObjectProvider<ViewingMapper> viewing,
+                             ObjectProvider<TransactionTemplate> transactions) {
         this.collections = collections;
         this.catalogues = catalogues;
         this.personal = personal;
+        this.viewing = viewing;
         this.transactions = transactions;
     }
 
@@ -48,14 +52,39 @@ public class CollectionService {
         var work = catalogue.findWork(workId);
         if (work == null) throw new CatalogProblem(CatalogProblem.Reason.WORK_NOT_FOUND);
         validate(work, form);
-        var item = new SavedWork(work.id(), work.type(), work.title(), work.coverUrl(), work.coverAltText(), work.episodeCount(),
-                form.favorite() ? 1 : 0, form.wishlist() ? 1 : 0, form.watchStatus(), form.watchedEpisodes());
         return transactions.getObject().execute(status -> {
-            var history = personal.getObject();
-            lockMember(history, userId);
-            var previous = item.workType() == WorkType.ANIME ? collection.find(userId, workId) : null;
+            lockMember(personal.getObject(), userId);
+            var item = work.type() == WorkType.ANIME
+                    ? followed(work, userId, collection.find(userId, workId))
+                    : game(work, form.favorite(), form.wishlist());
             collection.save(userId, item);
-            if (recordsProgress(item, previous)) history.addWatchEvent(userId, item);
+            return item;
+        });
+    }
+
+    public enum Selection { FOLLOW, FAVORITE, WISHLIST }
+
+    public SavedWork select(long userId, long workId, Selection kind, boolean enabled) {
+        return transactions.getObject().execute(status -> {
+            lockMember(personal.getObject(), userId);
+            var catalog = catalogues.getIfAvailable();
+            if (catalog == null) throw AccountService.unavailable();
+            var work = catalog.findWork(workId);
+            if (work == null) throw new CatalogProblem(CatalogProblem.Reason.WORK_NOT_FOUND);
+            boolean anime = work.type() == WorkType.ANIME;
+            if (anime != (kind == Selection.FOLLOW)) throw invalid("操作不适用于这类作品");
+
+            var collection = mapper();
+            var previous = collection.find(userId, workId);
+            if (anime && enabled && previous != null) return previous;
+            boolean favorite = kind != Selection.WISHLIST ? enabled : previous != null && previous.favorite() == 1;
+            boolean wishlist = kind == Selection.WISHLIST ? enabled : previous != null && previous.wishlist() == 1;
+            if (!favorite && !wishlist) {
+                collection.remove(userId, workId);
+                return null;
+            }
+            var item = anime ? followed(work, userId, previous) : game(work, favorite, wishlist);
+            collection.save(userId, item);
             return item;
         });
     }
@@ -74,12 +103,26 @@ public class CollectionService {
         }
     }
 
-    private static boolean recordsProgress(SavedWork item, SavedWork previous) {
-        boolean started = item.watchedEpisodes() > 0
-                || item.watchStatus() == WatchStatus.WATCHING || item.watchStatus() == WatchStatus.COMPLETED;
-        return item.workType() == WorkType.ANIME && started
-                && (previous == null || previous.watchStatus() != item.watchStatus()
-                    || previous.watchedEpisodes() != item.watchedEpisodes());
+    private SavedWork followed(CatalogMapper.WorkRow work, long userId, SavedWork previous) {
+        var history = viewing.getObject();
+        int watched = 0;
+        var state = WatchStatus.PLAN_TO_WATCH;
+        if (history.latest(userId, work.id()) != null) {
+            watched = history.completed(userId, work.id());
+            state = work.episodeCount() != null && watched >= work.episodeCount()
+                    ? WatchStatus.COMPLETED : WatchStatus.WATCHING;
+        } else if (previous != null) {
+            // Keep any saved pre-migration record when a legacy client repeats its request.
+            watched = previous.watchedEpisodes();
+            state = previous.watchStatus();
+        }
+        return new SavedWork(work.id(), work.type(), work.title(), work.coverUrl(), work.coverAltText(),
+                work.episodeCount(), 1, 0, state, watched);
+    }
+
+    private static SavedWork game(CatalogMapper.WorkRow work, boolean favorite, boolean wishlist) {
+        return new SavedWork(work.id(), work.type(), work.title(), work.coverUrl(), work.coverAltText(),
+                work.episodeCount(), favorite ? 1 : 0, wishlist ? 1 : 0, null, 0);
     }
 
     private CollectionMapper mapper() {

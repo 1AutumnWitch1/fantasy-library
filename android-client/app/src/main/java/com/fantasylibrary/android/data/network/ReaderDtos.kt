@@ -40,6 +40,19 @@ enum class Topic(val label: String) {
 @Serializable data class SaveWorkDto(
     val favorite: Boolean, val wishlist: Boolean, val watchStatus: String? = null, val watchedEpisodes: Int = 0,
 )
+enum class CollectionSelection { FOLLOW, FAVORITE, WISHLIST }
+@Serializable data class SelectionDto(val selected: Boolean)
+@Serializable data class PlaybackStatsDto(val followers: Long, val plays: Long)
+@Serializable data class SavedEpisodeDto(
+    val episodeNo: Int, val positionMs: Long, val durationMs: Long, val completed: Boolean, val updatedAt: String,
+)
+@Serializable data class ViewingProgressDto(val latest: SavedEpisodeDto? = null, val completedEpisodes: Int)
+@Serializable data class PlaybackStartDto(val sourceId: Long, val positionMs: Long)
+@Serializable data class PlaybackSessionDto(val id: String)
+@Serializable data class PlaybackSampleDto(
+    val positionMs: Long, val durationMs: Long, val playing: Boolean, val discontinuity: Boolean,
+)
+@Serializable data class PlaybackSampleResultDto(val counted: Boolean)
 @Serializable data class WatchEventDto(
     val id: Long, val workId: Long, val title: String, val coverUrl: String? = null,
     val watchStatus: String, val watchedEpisodes: Int, val episodeCount: Int? = null, val recordedAt: String,

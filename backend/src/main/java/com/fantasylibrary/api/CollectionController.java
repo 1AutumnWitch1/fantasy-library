@@ -6,6 +6,7 @@ import com.fantasylibrary.account.AccountModels.SavedWork;
 import com.fantasylibrary.service.CollectionService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,6 +41,14 @@ public class CollectionController {
     public ApiResponse<SavedWork> save(@AuthenticationPrincipal Long userId, @PathVariable @Positive long workId,
                                        @Valid @RequestBody SaveWork form) {
         return ApiResponse.success(collection.save(userId, workId, form));
+    }
+
+    public record Selection(@NotNull Boolean selected) {}
+
+    @PutMapping("/{workId}/selection/{kind}")
+    public ApiResponse<Entry> selection(@AuthenticationPrincipal Long userId, @PathVariable @Positive long workId,
+                                        @PathVariable CollectionService.Selection kind, @Valid @RequestBody Selection form) {
+        return ApiResponse.success(new Entry(collection.select(userId, workId, kind, form.selected())));
     }
 
     @DeleteMapping("/{workId}")

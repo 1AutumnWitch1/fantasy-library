@@ -64,6 +64,18 @@ class ReaderRepository(private val client: ApiClient, private val auth: AuthRepo
         callApiUnit("移除收藏") { api.remove(id) }
     }
 
+    suspend fun selection(base: String, id: Long, kind: CollectionSelection, selected: Boolean) = write(base) { api ->
+        callApi("更新馆藏记录") { api.selection(id, kind.name, SelectionDto(selected)) }
+    }
+    suspend fun playbackStats(base: String, id: Long) = callApi("读取播放统计") { client.api(base).playbackStats(id) }
+    suspend fun viewingProgress(base: String, id: Long) = callApi("读取观看进度") { client.api(base).viewingProgress(id) }
+    suspend fun startPlayback(base: String, id: Long, source: Long, position: Long) = write(base) { api ->
+        callApi("开始记录播放") { api.startPlayback(id, PlaybackStartDto(source, position)) }
+    }
+    suspend fun samplePlayback(base: String, id: Long, session: String, sample: PlaybackSampleDto) = write(base) { api ->
+        callApi("保存观看进度") { api.samplePlayback(id, session, sample) }
+    }
+
     suspend fun history(base: String, page: Int) = callApi("读取观看记录") { client.api(base).history(page) }
     suspend fun inbox(base: String, page: Int) = callApi("读取消息") { client.api(base).inbox(page) }
     suspend fun markRead(base: String, id: Long) = write(base) { api ->

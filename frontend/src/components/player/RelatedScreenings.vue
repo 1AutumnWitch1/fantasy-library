@@ -1,39 +1,25 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { listWorks, type WorkDetail, type WorkItem } from '../../api/catalog'
+import type { RelatedScreening } from '../../player/useRelatedScreenings'
 import { coverPreview } from '../../reader/coverPreview'
 
-const props = defineProps<{ detail: WorkDetail }>()
-const related = ref<WorkItem[]>([])
-
-watch(() => props.detail.work.id, async (id, _, onCleanup) => {
-  const request = new AbortController()
-  onCleanup(() => request.abort())
-  related.value = []
-  const tag = props.detail.tags[0]?.slug
-  try {
-    const list = (tags?: string[]) => listWorks('anime', { page: 1, size: 5, tags }, request.signal)
-    const result = await list(tag ? [tag] : undefined)
-    let matches = result.items.filter(item => item.work.id !== id)
-    if (tag && !matches.length && !request.signal.aborted) matches = (await list()).items.filter(item => item.work.id !== id)
-    if (!request.signal.aborted) related.value = matches.slice(0, 3)
-  } catch {
-    // Related works are optional while the video and catalog loads independently.
-  }
-}, { immediate: true })
+defineProps<{ items: RelatedScreening[] }>()
 </script>
 
 <template>
-  <section v-if="related.length" class="related" aria-labelledby="related-title">
-    <h2 id="related-title">同架推荐</h2>
+  <section v-if="items.length" id="related-screenings" class="related" aria-labelledby="related-title">
+    <h2 id="related-title">相关推荐</h2>
     <ul>
-      <li v-for="{ work } in related" :key="work.id">
-        <RouterLink :to="{ name: 'work-detail', params: { id: work.id }, query: { from: 'anime' } }">
+      <li v-for="{ item, plays } in items" :key="item.work.id">
+        <RouterLink :to="{ name: 'work-detail', params: { id: item.work.id }, query: { from: 'anime' } }">
           <div class="related-cover">
-            <img v-if="work.cover" :src="coverPreview(work.cover.url)" alt="" loading="lazy" decoding="async"
+            <img v-if="item.work.cover" :src="coverPreview(item.work.cover.url)" alt="" loading="lazy" decoding="async"
               @error="($event.currentTarget as HTMLImageElement).hidden = true">
           </div>
-          <div class="related-copy"><strong>{{ work.title }}</strong><span>{{ work.category.name }}</span></div>
+          <div class="related-copy">
+            <strong>{{ item.work.title }}</strong>
+            <span>{{ item.work.category.name }}<template v-if="item.anime?.episodeCount"> · {{ item.anime.episodeCount }} 集</template></span>
+            <span v-if="plays !== undefined">{{ plays }} 次播放</span>
+          </div>
         </RouterLink>
       </li>
     </ul>
@@ -41,15 +27,26 @@ watch(() => props.detail.work.id, async (id, _, onCleanup) => {
 </template>
 
 <style scoped lang="scss">
-.related { padding:.9rem 0 .15rem; }
-h2 { margin:0 0 .55rem; color:var(--foil); font:700 1.22rem/1.25 var(--display-font); }
-ul { display:grid; gap:.43rem; list-style:none; padding:0; margin:0; }
-a { display:grid; grid-template-columns: minmax(4.2rem,32%) minmax(0,1fr); gap:.55rem; align-items:center;
-  padding:.34rem; border:1px solid #98704a71; border-radius:.22rem; color:#f0d8aa; background:#2b1f16ac; text-decoration:none; }
-a:hover { background:#443023; border-color:var(--brass-frame); }
-.related-cover { overflow:hidden; aspect-ratio:16/10; background:#23382e; }
-img { width:100%; height:100%; object-fit:cover; }
-img[hidden] { display:none; }
-.related-copy { display:grid; min-width:0; overflow-wrap:anywhere; font-size:.9rem; }
-.related-copy span { color:var(--muted); font-size:.77rem; }
+.related { margin-top: .85rem; padding-top: .72rem; border-top: 1px solid #94734574; }
+h2 { margin: 0 0 .55rem; color: var(--paper-ink); font: 700 1.13rem/1.25 var(--display-font); }
+ul { display: grid; gap: .42rem; list-style: none; padding: 0; margin: 0; }
+a {
+  display: grid;
+  grid-template-columns: minmax(4.2rem, 37%) minmax(0, 1fr);
+  gap: .58rem;
+  align-items: center;
+  padding: .3rem;
+  border: 1px solid #98704a59;
+  border-radius: .24rem;
+  color: var(--paper-ink);
+  background: #f4dfb472;
+  text-decoration: none;
+}
+a:hover { background: #fbecce; border-color: #876a40; }
+.related-cover { overflow: hidden; aspect-ratio: 16/9; border-radius: .16rem; background: var(--pine); }
+img { width: 100%; height: 100%; object-fit: cover; }
+img[hidden] { display: none; }
+.related-copy { display: grid; gap: .14rem; min-width: 0; overflow-wrap: anywhere; font-size: .88rem; line-height: 1.28; }
+.related-copy strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.related-copy span { color: var(--paper-muted); font-size: .73rem; }
 </style>
