@@ -6,7 +6,7 @@ import { useAccountStore } from '../../stores/account'
 import AuthorAvatar from '../community/AuthorAvatar.vue'
 import ReportContent from '../community/ReportContent.vue'
 
-const props = defineProps<{ comment: ScreeningComment; workId: number; loginTo: { name: string; query: { next: string } } }>()
+const props = defineProps<{ comment: ScreeningComment; workId: number; game?: boolean; loginTo: { name: string; query: { next: string } } }>()
 const emit = defineEmits<{ reply: [comment: ScreeningComment] }>()
 const account = useAccountStore()
 const changed = shallowRef<Reaction>()
@@ -21,7 +21,7 @@ async function like() {
   saving.value = true
   error.value = ''
   try {
-    changed.value = await likeScreeningComment(props.workId, props.comment.id, !liked.value)
+    changed.value = await likeScreeningComment(props.workId, props.comment.id, !liked.value, props.game)
   } catch (reason) {
     if (needsLogin(reason)) account.signedOut()
     error.value = accountError(reason)

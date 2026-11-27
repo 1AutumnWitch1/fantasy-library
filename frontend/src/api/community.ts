@@ -42,11 +42,13 @@ export const getPost = (id: number, signal?: AbortSignal, countView = false) =>
   read<PostDetail>('/community/posts/' + id, countView ? { view: true } : undefined, signal)
 export const listComments = (id: number, page: number, signal?: AbortSignal) =>
   read<Page<Comment>>('/community/posts/' + id + '/comments', { page }, signal)
+const commentType = (game: boolean) => game ? 'GAME' : undefined
+const commentQuery = (game: boolean) => game ? '?type=GAME' : ''
 const screeningPath = (id: number, member: boolean) => (member ? '/me' : '') + '/works/' + id
-export const listScreeningThreads = (id: number, page: number, member: boolean, signal: AbortSignal) =>
-  read<Page<ScreeningThread>>(screeningPath(id, member) + '/comment-threads', { page }, signal)
-export const listScreeningReplies = (id: number, root: number, page: number, member: boolean, signal: AbortSignal) =>
-  read<Page<ScreeningComment>>(screeningPath(id, member) + '/comments/' + root + '/replies', { page }, signal)
+export const listScreeningThreads = (id: number, page: number, member: boolean, signal: AbortSignal, game = false) =>
+  read<Page<ScreeningThread>>(screeningPath(id, member) + '/comment-threads', { page, type: commentType(game) }, signal)
+export const listScreeningReplies = (id: number, root: number, page: number, member: boolean, signal: AbortSignal, game = false) =>
+  read<Page<ScreeningComment>>(screeningPath(id, member) + '/comments/' + root + '/replies', { page, type: commentType(game) }, signal)
 const memberPost = (id: number) => '/me/community/posts/' + id
 export const mediaUrl = (key: string) => '/api/community/media/' + encodeURIComponent(key)
 
@@ -62,10 +64,10 @@ export const edit = (id: number, draft: Draft, files: File[]) => write<void>('PU
 export const deletePost = (id: number) => write<void>('DELETE', memberPost(id))
 export const addComment = (id: number, body: string, parentId: number | null) =>
   write<Created>('POST', memberPost(id) + '/comments', { body, parentId })
-export const addScreeningComment = (id: number, body: string, parentId: number | null) =>
-  write<Created>('POST', '/me/works/' + id + '/comments', { body, parentId })
-export const likeScreeningComment = (work: number, id: number, liked: boolean) =>
-  write<Reaction>('PUT', screeningPath(work, true) + '/comments/' + id + '/like', { liked })
+export const addScreeningComment = (id: number, body: string, parentId: number | null, game = false) =>
+  write<Created>('POST', screeningPath(id, true) + '/comments' + commentQuery(game), { body, parentId })
+export const likeScreeningComment = (work: number, id: number, liked: boolean, game = false) =>
+  write<Reaction>('PUT', screeningPath(work, true) + '/comments/' + id + '/like' + commentQuery(game), { liked })
 export const getReaction = (id: number, signal?: AbortSignal) => read<Reaction>(memberPost(id) + '/like', undefined, signal)
 export const setReaction = (id: number, liked: boolean) =>
   write<Reaction>(liked ? 'PUT' : 'DELETE', memberPost(id) + '/like')

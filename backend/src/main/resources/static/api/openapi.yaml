@@ -1614,8 +1614,9 @@ paths:
     get:
       tags: [Community]
       operationId: listScreeningComments
-      summary: 读取一部番剧各分集共用的放映室评论和回复
+      summary: 读取作品评论和回复
       parameters:
+        - $ref: '#/components/parameters/WorkCommentType'
         - $ref: '#/components/parameters/Page'
         - name: size
           in: query
@@ -1639,8 +1640,9 @@ paths:
     get:
       tags: [Community]
       operationId: listScreeningThreads
-      summary: 读取番剧评论及每条评论的前两条回复
+      summary: 读取作品评论及每条评论的前两条回复
       parameters: &screeningThreadParams
+        - $ref: '#/components/parameters/WorkCommentType'
         - $ref: '#/components/parameters/ForumId'
         - $ref: '#/components/parameters/Page'
         - name: size
@@ -1664,7 +1666,7 @@ paths:
     get:
       tags: [Community]
       operationId: listMemberScreeningThreads
-      summary: 读取番剧评论、回复预览与当前用户的点赞状态
+      summary: 读取作品评论、回复预览与当前用户的点赞状态
       security:
         - LibrarySession: []
       parameters: *screeningThreadParams
@@ -1675,8 +1677,9 @@ paths:
     get:
       tags: [Community]
       operationId: listScreeningReplies
-      summary: 按页展开一条番剧评论下的回复
+      summary: 按页展开一条作品评论下的回复
       parameters: &screeningReplyParams
+        - $ref: '#/components/parameters/WorkCommentType'
         - $ref: '#/components/parameters/ForumId'
         - name: root
           in: path
@@ -1715,10 +1718,11 @@ paths:
     put:
       tags: [Community]
       operationId: setScreeningCommentLike
-      summary: 为可见的番剧评论点赞或取消点赞
+      summary: 为可见的作品评论点赞或取消点赞
       security:
         - {LibrarySession: [], CsrfHeader: []}
       parameters:
+        - $ref: '#/components/parameters/WorkCommentType'
         - $ref: '#/components/parameters/ForumId'
         - name: comment
           in: path
@@ -1889,9 +1893,11 @@ paths:
     post:
       tags: [Community]
       operationId: createScreeningComment
-      summary: 登录后发布番剧评论或回复同一番剧下的评论
+      summary: 登录后发布作品评论或回复同一作品下的评论
       security:
         - {LibrarySession: [], CsrfHeader: []}
+      parameters:
+        - $ref: '#/components/parameters/WorkCommentType'
       requestBody:
         required: true
         content:
@@ -2137,6 +2143,11 @@ components:
       name: X-XSRF-TOKEN
       description: 通过 GET /api/auth/csrf 获取校验值并保留响应 Cookie。
   parameters:
+    WorkCommentType:
+      name: type
+      in: query
+      description: 作品类型。游戏评论必须指定 GAME。
+      schema: {type: string, enum: [ANIME, GAME], default: ANIME}
     ForumId:
       name: id
       in: path

@@ -1,5 +1,6 @@
 package com.fantasylibrary.api;
 
+import com.fantasylibrary.catalog.model.Catalog.WorkType;
 import com.fantasylibrary.catalog.model.Catalog.Page;
 import com.fantasylibrary.community.CommunityModels.*;
 import com.fantasylibrary.service.CommunityService;
@@ -53,40 +54,45 @@ public class CommunityController {
 
     @GetMapping("/api/works/{id}/comments")
     public ApiResponse<Page<Comment>> screeningComments(@PathVariable @Positive long id,
+            @RequestParam(defaultValue = "ANIME") WorkType type,
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "12") @Min(1) @Max(30) int size) {
-        return ApiResponse.success(community.screeningComments(id, page, size));
+        return ApiResponse.success(community.screeningComments(id, type, page, size));
     }
 
     @GetMapping({"/api/works/{id}/comment-threads", "/api/me/works/{id}/comment-threads"})
     public ResponseEntity<ApiResponse<Page<ScreeningThread>>> screeningThreads(
             @AuthenticationPrincipal Long viewer, @PathVariable @Positive long id,
+            @RequestParam(defaultValue = "ANIME") WorkType type,
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "10") @Min(1) @Max(30) int size) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(ApiResponse.success(community.screeningThreads(id, viewer, page, size)));
+                .body(ApiResponse.success(community.screeningThreads(id, type, viewer, page, size)));
     }
 
     @GetMapping({"/api/works/{id}/comments/{root}/replies", "/api/me/works/{id}/comments/{root}/replies"})
     public ResponseEntity<ApiResponse<Page<ScreeningComment>>> screeningReplies(
             @AuthenticationPrincipal Long viewer, @PathVariable @Positive long id, @PathVariable @Positive long root,
+            @RequestParam(defaultValue = "ANIME") WorkType type,
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "6") @Min(1) @Max(30) int size) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(ApiResponse.success(community.screeningReplies(id, root, viewer, page, size)));
+                .body(ApiResponse.success(community.screeningReplies(id, type, root, viewer, page, size)));
     }
 
     @PutMapping("/api/me/works/{id}/comments/{comment}/like")
     public ApiResponse<Reaction> likeScreeningComment(@AuthenticationPrincipal Long user,
-            @PathVariable @Positive long id, @PathVariable @Positive long comment, @Valid @RequestBody CommentLike form) {
-        return ApiResponse.success(community.screenReaction(id, comment, user, form.liked()));
+            @PathVariable @Positive long id, @PathVariable @Positive long comment,
+            @RequestParam(defaultValue = "ANIME") WorkType type, @Valid @RequestBody CommentLike form) {
+        return ApiResponse.success(community.screenReaction(id, type, comment, user, form.liked()));
     }
 
     @PostMapping("/api/me/works/{id}/comments")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<Created> screeningComment(@AuthenticationPrincipal Long user, @PathVariable @Positive long id,
+                                                 @RequestParam(defaultValue = "ANIME") WorkType type,
                                                  @Valid @RequestBody CommentForm form) {
-        return ApiResponse.success(community.screeningComment(id, user, form));
+        return ApiResponse.success(community.screeningComment(id, type, user, form));
     }
 
     @GetMapping("/api/community/media/{key}")

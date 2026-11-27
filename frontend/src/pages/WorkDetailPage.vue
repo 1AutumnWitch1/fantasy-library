@@ -5,7 +5,7 @@ import GameDownloadActions from '../components/catalog/GameDownloadActions.vue'
 import EpisodePicker from '../components/player/EpisodePicker.vue'
 import WorkCollectionPanel from '../components/reader/WorkCollectionPanel.vue'
 import BookSigil from '../components/shelf/BookSigil.vue'
-import { communityLink } from '../api/community'
+import ScreeningDiscussion from '../components/player/ScreeningDiscussion.vue'
 import { airingLabels } from '../api/catalog'
 import { useViewingProgress } from '../player/useViewingProgress'
 import { groupPlayback, type Episode } from '../api/playback'
@@ -41,6 +41,12 @@ watch(() => detail.value?.work.id, () => {
   bannerFailed.value = false
   document.title = detail.value ? detail.value.work.title + ' · 幻想图书馆' : '作品资料 · 幻想图书馆'
 })
+
+watch([() => detail.value?.work.id, () => route.hash], () => {
+  if (detail.value?.game && route.hash === '#game-discussion') {
+    document.getElementById('game-discussion')?.scrollIntoView()
+  }
+}, { flush: 'post' })
 
 function watchLink(episodeId?: number) {
   return { name: 'work-watch', params: { id: route.params.id },
@@ -93,7 +99,6 @@ function returnToBook() {
                 </RouterLink>
                 <GameDownloadActions v-else-if="detail.game" :key="detail.work.id" :work-id="detail.work.id" />
                 <RouterLink v-if="detail.anime" :to="{ ...watchLink(), hash: '#screening-discussion' }">番剧评论 ›</RouterLink>
-                <RouterLink v-else :to="communityLink(detail.work.id)">作品讨论 ›</RouterLink>
               </div>
               <p v-if="detail.anime && !checkingEpisodes && !playbackError" class="availability">
                 {{ previewOnly ? '已收录 ' + playable.length + ' 段馆藏演示预告' : !playable.length ? '暂未收录播放源' : '已收录 ' + playable.length + ' 段可观看内容' }}
@@ -142,6 +147,8 @@ function returnToBook() {
             </figure>
           </div>
         </section>
+
+        <ScreeningDiscussion v-if="detail.game" :key="detail.work.id" :work-id="detail.work.id" game class="game-discussion" />
       </template>
       <div v-else class="record-paper" role="status">
         <p v-if="error" role="alert">{{ error }}</p><p v-else>正在调阅作品资料…</p>
@@ -158,6 +165,7 @@ function returnToBook() {
 .dossier-summary p { margin: .5rem 0; white-space: pre-line; }
 .dossier-actions { margin-top: .65rem; }
 .dossier-papers--single { grid-template-columns: 1fr; }
+.game-discussion { margin-top: .9rem; }
 .record-summary { align-self: start; }
 .record-summary p {
   margin: .65rem 0 0;

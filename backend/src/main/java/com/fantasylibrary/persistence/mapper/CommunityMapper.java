@@ -37,15 +37,17 @@ public interface CommunityMapper {
             """)
     Row lockCommentThread(long id);
 
-    @Select("SELECT id FROM fl_work WHERE id = #{workId} AND work_type = 'ANIME' AND is_listed = 1 FOR UPDATE")
-    Long lockScreeningWork(long workId);
+    @Select("SELECT id FROM fl_work WHERE id = #{workId} AND work_type = #{type} AND is_listed = 1 FOR UPDATE")
+    Long lockScreeningWork(@Param("workId") long workId, @Param("type") WorkType type);
 
     @Select("SELECT id FROM fl_forum_post WHERE work_id = #{workId} AND screening_thread = 1")
     Long screeningThread(long workId);
 
     @Insert("""
             INSERT INTO fl_forum_post (id, author_id, work_id, topic, title, body, screening_thread)
-            SELECT #{id}, #{author}, id, 'ANIME', SUBSTR(title, 1, 90) || ' · 放映评论', '放映室评论', 1
+            SELECT #{id}, #{author}, id, work_type,
+                   SUBSTR(title, 1, 90) || CASE work_type WHEN 'GAME' THEN ' · 游戏评论' ELSE ' · 放映评论' END,
+                   CASE work_type WHEN 'GAME' THEN '游戏评论' ELSE '放映室评论' END, 1
             FROM fl_work WHERE id = #{workId}
             """)
     void addScreeningThread(@Param("id") long id, @Param("author") long author, @Param("workId") long workId);

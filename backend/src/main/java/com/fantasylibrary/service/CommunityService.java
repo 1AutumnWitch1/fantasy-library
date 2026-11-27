@@ -129,15 +129,15 @@ public class CommunityService {
         return commentPage(db, post, page, size);
     }
 
-    public Page<Comment> screeningComments(long workId, int page, int size) {
+    public Page<Comment> screeningComments(long workId, WorkType type, int page, int size) {
         var db = mapper();
-        var post = screeningPost(db, workId);
+        var post = screeningPost(db, workId, type);
         return post == null ? Page.of(List.of(), page, size, 0) : commentPage(db, post, page, size);
     }
 
-    public Page<ScreeningThread> screeningThreads(long workId, Long viewer, int page, int size) {
+    public Page<ScreeningThread> screeningThreads(long workId, WorkType type, Long viewer, int page, int size) {
         var db = mapper();
-        var post = screeningPost(db, workId);
+        var post = screeningPost(db, workId, type);
         if (post == null) return Page.of(List.of(), page, size, 0);
         long offset = offset(page, size);
         long total = db.countScreeningThreads(post);
@@ -152,9 +152,9 @@ public class CommunityService {
         return Page.of(groups, page, size, total);
     }
 
-    public Page<ScreeningComment> screeningReplies(long workId, long root, Long viewer, int page, int size) {
+    public Page<ScreeningComment> screeningReplies(long workId, WorkType type, long root, Long viewer, int page, int size) {
         var db = mapper();
-        var post = screeningPost(db, workId);
+        var post = screeningPost(db, workId, type);
         var comment = db.comment(root);
         if (post == null || comment == null || comment.postId() != post || comment.parentId() != null) {
             throw notFound();
@@ -164,10 +164,10 @@ public class CommunityService {
         return Page.of(offset < total ? db.screeningReplies(post, root, viewer, offset, size) : List.of(), page, size, total);
     }
 
-    public Reaction screenReaction(long workId, long id, long user, boolean liked) {
+    public Reaction screenReaction(long workId, WorkType type, long id, long user, boolean liked) {
         var db = mapper();
         return transaction().execute(status -> {
-            if (db.lockScreeningWork(workId) == null) throw notFound();
+            if (db.lockScreeningWork(workId, type) == null) throw notFound();
             var post = db.screeningThread(workId);
             if (post == null) throw notFound();
             visible(db.lockPost(post));
@@ -181,9 +181,9 @@ public class CommunityService {
         });
     }
 
-    private Long screeningPost(CommunityMapper db, long workId) {
+    private Long screeningPost(CommunityMapper db, long workId, WorkType type) {
         var work = catalog.getObject().findWork(workId);
-        if (work == null || work.type() != WorkType.ANIME) throw notFound();
+        if (work == null || work.type() != type) throw notFound();
         return db.screeningThread(workId);
     }
 
@@ -198,15 +198,15 @@ public class CommunityService {
         String body = text(form.body());
         return transaction().execute(status -> {
             visible(db.lockForumPost(post));
-            return saveComment(db, post, author, form.parentId(), body);
+            return saveComment(db, post, author, form.parentId(), body, true);
         });
     }
 
-    public Created screeningComment(long workId, long author, CommentForm form) {
+    public Created screeningComment(long workId, WorkType type, long author, CommentForm form) {
         var db = mapper();
         String body = text(form.body());
         return transaction().execute(status -> {
-            if (db.lockScreeningWork(workId) == null) throw notFound();
+            if (db.lockScreeningWork(workId, type) == null) throw notFound();
             var post = db.screeningThread(workId);
             if (post == null) {
                 if (form.parentId() != null) throw invalid("只能回复当前讨论中可见的评论");
@@ -214,11 +214,11 @@ public class CommunityService {
                 db.addScreeningThread(post, author, workId);
             }
             visible(db.lockPost(post));
-            return saveComment(db, post, author, form.parentId(), body);
+            return saveComment(db, post, author, form.parentId(), body, type == WorkType.ANIME);
         });
     }
 
-    private Created saveComment(CommunityMapper db, long post, long author, Long parentId, String body) {
+    private Created saveComment(CommunityMapper db, long post, long author, Long parentId, String body, boolean notify) {
         Long rootId = null;
         if (parentId != null) {
             var parent = db.comment(parentId);
@@ -229,7 +229,7 @@ public class CommunityService {
         }
         long id = db.nextComment();
         db.addComment(id, post, author, parentId, rootId, body);
-        personal.getObject().notifyComment(id);
+        if (notify) personal.getObject().notifyComment(id);
         return new Created(id);
     }
 

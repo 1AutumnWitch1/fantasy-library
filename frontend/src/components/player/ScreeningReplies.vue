@@ -5,7 +5,7 @@ import { listScreeningReplies, type Page, type ScreeningComment, type ScreeningT
 import ScreeningCommentRow from './ScreeningCommentRow.vue'
 
 const props = defineProps<{
-  group: ScreeningThread; workId: number; member: boolean; refresh: number
+  group: ScreeningThread; workId: number; game?: boolean; member: boolean; refresh: number
   loginTo: { name: string; query: { next: string } }
 }>()
 const emit = defineEmits<{ reply: [comment: ScreeningComment] }>()
@@ -31,7 +31,7 @@ watch([expanded, page, () => props.member, () => props.refresh, retry], async ([
   loading.value = true
   error.value = ''
   try {
-    const data = await listScreeningReplies(props.workId, props.group.comment.id, number, props.member, request.signal)
+    const data = await listScreeningReplies(props.workId, props.group.comment.id, number, props.member, request.signal, props.game)
     if (request.signal.aborted) return
     if (number > Math.max(1, data.totalPages)) page.value = Math.max(1, data.totalPages)
     else result.value = data
@@ -54,7 +54,7 @@ function toggle() {
 <template>
   <ol v-if="items.length" class="screening-replies" aria-label="回复">
     <li v-for="item in items" :key="item.id">
-      <ScreeningCommentRow :comment="item" :work-id="workId" :login-to="loginTo" @reply="emit('reply', $event)" />
+      <ScreeningCommentRow :comment="item" :work-id="workId" :game="game" :login-to="loginTo" @reply="emit('reply', $event)" />
     </li>
   </ol>
   <div v-if="expanded || group.comment.replyCount > preview.length" class="reply-controls">
