@@ -7,17 +7,15 @@ import WorkCollectionPanel from '../components/reader/WorkCollectionPanel.vue'
 import BookSigil from '../components/shelf/BookSigil.vue'
 import { communityLink } from '../api/community'
 import { airingLabels } from '../api/catalog'
-import { useAccountStore } from '../stores/account'
 import { useViewingProgress } from '../player/useViewingProgress'
-import { groupPlayback, timeLabel, type Episode } from '../api/playback'
+import { groupPlayback, type Episode } from '../api/playback'
 import { useWorkScreen } from '../player/useWorkScreen'
 
 const route = useRoute()
 const router = useRouter()
 const { detail, episodes, checkingEpisodes, error, playbackError, retry } = useWorkScreen(() => route.params.id, true)
-const account = useAccountStore()
 const viewing = useViewingProgress(() => detail.value?.anime ? detail.value.work.id : undefined)
-const { stats, progress, checking, error: progressError } = viewing
+const { stats, progress } = viewing
 const latest = computed(() => progress.value?.latest)
 const resume = computed(() => !latest.value?.completed && episodes.value.some(item =>
   item.edition === 'EPISODE' && item.number === latest.value?.episodeNo && item.sources.length > 0))
@@ -127,20 +125,9 @@ function returnToBook() {
               </template>
             </dl>
           </section>
-          <section v-if="detail.anime" class="record-paper record-collection">
-            <h2>我的观看记录</h2>
-            <p v-if="checking" role="status">正在读取观看记录…</p>
-            <p v-else-if="!account.profile">登录后可在设备间同步观看记录。</p>
-            <p v-else-if="progressError" role="alert">暂时无法读取观看记录。<button type="button" @click="viewing.retry">重试</button></p>
-            <p v-else-if="!latest">尚未观看</p>
-            <template v-else>
-              <p>已看 {{ progress?.completedEpisodes }} 集
-                <template v-if="detail.anime.episodeCount && (progress?.completedEpisodes ?? 0) >= detail.anime.episodeCount"> · 已看完</template>
-                <template v-else-if="!latest.completed"> · 正在观看第 {{ latest.episodeNo }} 集</template>
-              </p>
-              <p>最近观看 · 第 {{ latest.episodeNo }} 集 · {{ timeLabel(latest.positionMs / 1000) }}</p>
-              <time :datetime="latest.updatedAt">{{ new Date(latest.updatedAt).toLocaleString('zh-CN') }}</time>
-            </template>
+          <section v-if="detail.anime" class="record-paper record-summary" aria-labelledby="work-summary">
+            <h2 id="work-summary">作品简介</h2>
+            <p>{{ detail.work.summary?.trim() || '暂无简介' }}</p>
           </section>
         </div>
 
@@ -171,4 +158,11 @@ function returnToBook() {
 .dossier-summary p { margin: .5rem 0; white-space: pre-line; }
 .dossier-actions { margin-top: .65rem; }
 .dossier-papers--single { grid-template-columns: 1fr; }
+.record-summary { align-self: start; }
+.record-summary p {
+  margin: .65rem 0 0;
+  line-height: 1.7;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
 </style>
