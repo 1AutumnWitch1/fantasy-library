@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { coverPreview } from '../../reader/coverPreview'
-import { watchLabels, type SavedWork } from '../../api/account'
-defineProps<{ items: SavedWork[]; interactive: boolean }>()
+import type { SavedWork } from '../../api/account'
+defineProps<{ items: SavedWork[]; interactive: boolean; emptyMessage: string }>()
 </script>
 
 <template>
   <ul class="private-shelf reader-content">
+    <li v-if="!items.length && emptyMessage" class="shelf-empty">{{ emptyMessage }}</li>
     <li v-for="item in items" :key="item.workId" class="edition">
       <img v-if="item.coverUrl" :key="item.coverUrl" :src="coverPreview(item.coverUrl)" loading="lazy" decoding="async" :alt="item.coverAlt ?? ''"
         @error="($event.target as HTMLImageElement).hidden = true">
       <div class="edition-title">
         <h4>{{ item.title }}</h4>
-        <p v-if="item.watchStatus">{{ watchLabels[item.watchStatus] }} · {{ item.watchedEpisodes }}{{ item.episodeCount ? ' / ' + item.episodeCount : '' }} 集</p>
+        <p v-if="item.workType === 'ANIME'">已看 {{ item.watchedEpisodes }}{{ item.episodeCount ? ' / ' + item.episodeCount : '' }} 集</p>
         <p v-else>{{ [item.favorite && '已收藏', item.wishlist && '愿望单'].filter(Boolean).join(' · ') }}</p>
       </div>
       <RouterLink v-if="interactive" :to="{ name: 'work-detail', params: { id: item.workId }, query: { from: 'personal' } }"
@@ -36,6 +37,7 @@ defineProps<{ items: SavedWork[]; interactive: boolean }>()
   border-bottom-width: .45rem;
   box-shadow: inset 0 0 1rem #120a05b0, 0 .2rem .35rem #51311166;
 }
+.shelf-empty { grid-column: 1 / -1; align-self: center; text-align: center; color: #f4dfb2; }
 .edition {
   position: relative;
   align-self: end;
@@ -63,7 +65,8 @@ defineProps<{ items: SavedWork[]; interactive: boolean }>()
 .edition-link:focus-visible { outline: 3px solid #edc88d; outline-offset: -3px; }
 @media(max-width:46rem) {
   .private-shelf { grid-template-columns: repeat(2,minmax(0,1fr)); grid-template-rows: none; grid-auto-rows: auto; align-content: start; padding: .4rem; background: linear-gradient(#2012095c,#110b06ad), var(--walnut-grain) center / 20rem; }
-  .edition { align-self: start; }
+  .shelf-empty { grid-column: 1 / -1; align-self: center; text-align: center; color: #f4dfb2; }
+.edition { align-self: start; }
   .edition-title { padding-inline:.3rem; }
 }
 </style>

@@ -36,7 +36,7 @@ const searchQuery = computed({ get: () => props.search, set: (query: string) => 
 </script>
 
 <template>
-  <article class="reader-page" :class="['reader-page--' + side, { 'reader-page--single': single, 'reader-page--game': page.kind === 'game' || page.kind === 'catalogue' }]" :data-page-number="page.number">
+  <article class="reader-page" :class="['reader-page--' + side, { 'reader-page--single': single, 'reader-page--anime': page.kind === 'personal' && page.section === 'anime', 'reader-page--game': page.kind === 'game' || page.kind === 'catalogue' }]" :data-page-number="page.number">
     <div class="reader-page__heading" :class="{ 'reader-page__heading--search': (page.kind === 'videos' && !single) || catalogSearch }">
       <h3>{{ title }}</h3>
       <ReaderSearch v-if="catalogSearch" v-model="searchQuery" label="搜索作品" placeholder="搜作品名称或简介" :disabled="!interactive" />
@@ -91,9 +91,12 @@ const searchQuery = computed({ get: () => props.search, set: (query: string) => 
 }
 
 .reader-page--right {
-  gap: clamp(0.35rem, 1vh, 0.68rem);
   padding-left: clamp(0.9rem, 1.85vw, 1.95rem);
-  padding-right: clamp(0.65rem, 1.3vw, 1.45rem);
+
+  &:where(:not(.reader-page--anime)) {
+    gap: clamp(0.35rem, 1vh, 0.68rem);
+    padding-right: clamp(0.65rem, 1.3vw, 1.45rem);
+  }
   border-radius: 0.44rem 0.19rem 0.25rem 0.1rem;
   box-shadow: inset 0.55rem 0 1.25rem -0.55rem #523318b0;
 }

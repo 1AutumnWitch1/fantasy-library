@@ -85,7 +85,7 @@ export type PersonalPage = TitledPage & {
   guest: boolean
   message: string
 } & (
-  { section: 'collection'; items: SavedWork[] }
+  { section: 'anime' | 'collection'; items: SavedWork[] }
   | { section: 'history'; events: WatchEvent[] }
   | { section: 'inbox'; notices: Notice[]; unread: number }
 )

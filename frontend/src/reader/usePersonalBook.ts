@@ -6,6 +6,7 @@ import { useAccountStore } from '../stores/account'
 import type { BookSpread, PersonalPage } from './bookTypes'
 
 const itemsPerSide = 4
+const animePerSpread = itemsPerSide * 2
 type Remote = { chapter: 'history'; data: Page<WatchEvent> } | { chapter: 'inbox'; data: Inbox }
 interface Edition { chapter: PersonalChapter; owner: number; index: number; spread: BookSpread; remote?: Remote }
 
@@ -31,30 +32,47 @@ export function usePersonalBook(chapter: Ref<PersonalChapter>, reading: { spread
     else failure.value = accountError(reason)
   }
 
-  function lists() {
-    if (chapter.value === 'games') {
-      const games = saved.value.filter(item => item.workType === 'GAME')
-      return [games.filter(item => item.wishlist), games.filter(item => item.favorite)] as const
+  const followedAnime = computed(() => {
+    const works = new Map<number, SavedWork>()
+    for (const item of saved.value) {
+      if (item.workType === 'ANIME' && item.favorite && !works.has(item.workId)) works.set(item.workId, item)
     }
-    const anime = saved.value.filter(item => item.workType === 'ANIME')
-    return [anime.filter(item => item.watchStatus === 'WATCHING' || item.watchStatus === 'PLAN_TO_WATCH'),
-      anime.filter(item => item.watchStatus === 'COMPLETED' || item.watchStatus === 'ON_HOLD')] as const
-  }
+    return [...works.values()]
+  })
+
+  const gameLists = computed(() => {
+    const games = saved.value.filter(item => item.workType === 'GAME')
+    return [games.filter(item => item.wishlist), games.filter(item => item.favorite)] as const
+  })
 
   function status() {
     return working.value ? '正在读取私人书架…' : error.value
   }
 
   function localSpread(index: number): BookSpread {
-    const [left, right] = lists()
-    const titles = chapter.value === 'games' ? ['游戏愿望单', '已收藏游戏'] : ['在看与想看', '已看与搁置']
-    const empty = chapter.value === 'games' ? ['愿望单里还没有游戏', '还没有收藏游戏'] : ['还没有追番计划', '这里还没有追番收藏']
-    const page = (number: number, title: string, items: SavedWork[], message: string): PersonalPage => ({
+    const message = !loaded.value && status()
+    const number = index * 2 + 1
+    if (chapter.value === 'anime') {
+      const items = followedAnime.value.slice(index * animePerSpread, (index + 1) * animePerSpread)
+      const middle = Math.ceil(items.length / 2)
+      const base = { kind: 'personal' as const, section: 'anime' as const, title: '我的追番',
+        guest: guest.value, message: message || (items.length ? '' : '还没有追番作品') }
+      return {
+        left: { ...base, number, items: items.slice(0, middle) },
+        right: { ...base, number: number + 1, items: items.slice(middle) },
+      }
+    }
+
+    const [wishlist, favorites] = gameLists.value
+    const page = (number: number, title: string, items: SavedWork[], empty: string): PersonalPage => ({
       kind: 'personal', section: 'collection', number, title, guest: guest.value,
       items: items.slice(index * itemsPerSide, (index + 1) * itemsPerSide),
-      message: (!loaded.value && status()) || message,
+      message: message || empty,
     })
-    return { left: page(index * 2 + 1, titles[0], left, empty[0]), right: page(index * 2 + 2, titles[1], right, empty[1]) }
+    return {
+      left: page(number, '游戏愿望单', wishlist, '愿望单里还没有游戏'),
+      right: page(number + 1, '已收藏游戏', favorites, '还没有收藏游戏'),
+    }
   }
 
   function remoteSpread(index: number, response = remote.value): BookSpread {
@@ -87,7 +105,8 @@ export function usePersonalBook(chapter: Ref<PersonalChapter>, reading: { spread
       const data = remote.value
       return Math.max(1, (data?.chapter === 'inbox' ? data.data.page.totalPages : data?.data.totalPages) ?? 0)
     }
-    return Math.max(1, ...lists().map(items => Math.ceil(items.length / itemsPerSide)))
+    if (chapter.value === 'anime') return Math.max(1, Math.ceil(followedAnime.value.length / animePerSpread))
+    return Math.max(1, ...gameLists.value.map(items => Math.ceil(items.length / itemsPerSide)))
   })
 
   async function fetchEdition(index: number): Promise<Edition | undefined> {

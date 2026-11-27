@@ -14,8 +14,8 @@ const emit = defineEmits<{ markRead: [id?: number] }>()
     <RouterLink v-if="page.number % 2 === 1 && interactive"
       :to="{ name: 'account', query: { next: '/books/personal' } }">登录图书馆 ›</RouterLink>
   </div>
-  <PersonalEntries v-else-if="page.section === 'collection' && page.items.length"
-    :items="page.items" :interactive="interactive" />
+  <PersonalEntries v-else-if="page.section === 'anime' || (page.section === 'collection' && page.items.length)"
+    :items="page.items" :interactive="interactive" :empty-message="page.message" />
   <div v-else-if="page.section === 'history' && page.events.length" class="reader-content">
     <PersonalWatchHistory :events="page.events" :interactive="interactive" />
   </div>
